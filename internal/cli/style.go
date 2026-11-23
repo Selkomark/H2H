@@ -61,6 +61,12 @@ func (st styles) state(i session.Info) lipgloss.Style {
 	return st.bad
 }
 
+// bar renders a full-width strip of text, for the row h2h keeps on screen
+// while a harness has the rest of the terminal.
+func (st styles) bar(text string, width int) string {
+	return lipgloss.NewStyle().Reverse(true).Foreground(accentColor).Width(width).MaxWidth(width).Render(text)
+}
+
 // diff colours the rows of a lineDiff.
 func (st styles) diff(d string) string {
 	lines := strings.Split(strings.TrimSuffix(d, "\n"), "\n")
