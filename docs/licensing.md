@@ -11,6 +11,10 @@ A company should be able to run a licence audit on H2H and its dependencies and 
 - **No copied code.** H2H is a clean-room build; see [prior-art.md](prior-art.md).
 - **Only permissively licensed dependencies,** as set out below.
 
+## H2H's own licence
+
+H2H is released under Apache-2.0. The text is in the [`LICENSE`](../LICENSE) file at the repository root. It was chosen because it is permissive, widely approved by corporate policies, and includes a patent grant, which MIT does not.
+
 ## Dependencies
 
 | Licence | Use in H2H | Why |
@@ -49,6 +53,5 @@ The tools for these checks are not chosen yet. They must meet the same licence r
 
 ## Open questions
 
-- **H2H's own licence.** H2H will be released under an open-source licence that companies accept. Apache-2.0 is proposed: it is permissive, widely approved by corporate policies, and includes a patent grant, which MIT does not. Not final until a `LICENSE` file is added.
 - **Harnesses are not dependencies.** Claude Code, Copilot and Codex are separate products the user installs and licenses. H2H starts them and does not ship them. Whether an audit still wants them listed is unknown.
 - **Runtime protocols.** Using a published protocol such as MCP or A2A is use of a specification, not of code. Any library used to speak it falls under the dependency rules.

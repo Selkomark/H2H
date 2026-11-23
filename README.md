@@ -67,3 +67,7 @@ Read in this order:
 - [docs/roadmap.md](docs/roadmap.md): build stages and open questions
 
 Diagrams in these documents are Mermaid and follow the rules in `.claude/skills/mermaid-diagrams/`.
+
+## Licence
+
+H2H is released under the Apache License 2.0. See [LICENSE](LICENSE).

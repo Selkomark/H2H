@@ -8,6 +8,7 @@ Two things come first:
 
 - **Clean-room build.** Decided: H2H is written from scratch and copies no code from existing orchestrators. Their ideas and architecture may be reused. See [prior-art.md](prior-art.md).
 - **Permissive dependencies only.** Decided: every dependency must carry a licence a corporate audit accepts, checked in the build from the first stage. See [licensing.md](licensing.md).
+- **H2H's own licence.** Decided: Apache-2.0. See [licensing.md](licensing.md).
 - **Try the existing tools.** Optional. Use Gas Town and CLI Agent Orchestrator to learn what works in practice.
 - **Validate the riskiest assumptions.** Done on 2026-11-20, as [three short validation spikes](https://github.com/Selkomark/multi-agent-playground/tree/main/experiments/02-h2h/validations): detecting session state, answering permission requests by policy, and a baseline against one harness with sub-agents. None invalidated the design, and each changed part of it. See [findings.md](findings.md).
 - **Repeat the baseline properly.** The baseline used one easy task and two or three runs per setup. Before relying on it, run a task hard enough for the builder to get wrong, at least five times per setup, with a tester of each product reviewing the same builder output.
@@ -67,7 +68,6 @@ The useful question is "what breaks at the boundary", more than "is the output b
 - **Persistence.** How an owner keeps memory across sessions in a way that works for every harness.
 - **Domain boundaries.** How one owner requests a change in another's domain.
 - **Ticket system.** Built as part of H2H, under the clean-room rule. Beads, the tracker behind Gas Town, is built for agents and is worth studying for ideas. What is open is the ticket store's design, not whether to adopt one.
-- **H2H's own licence.** Apache-2.0 is proposed and not final; see [licensing.md](licensing.md).
 - **Sub-agent visibility.** Whether an owner's sub-agents can be made visible to H2H without breaking harness-agnosticism.
 - **Domain size.** How to tell that a domain is too big for one owner before it becomes a problem.
 - **Domain contracts.** The format of the written interface between domains, and how dependents are notified of a change.
