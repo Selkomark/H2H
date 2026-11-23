@@ -37,9 +37,9 @@ type UI interface {
 // Theme is the look of the console, supplied by the caller so the colours
 // are defined in one place.
 type Theme struct {
-	Accent lipgloss.Style // the prompt, selected entries, typed lines
-	Dim    lipgloss.Style // hints and secondary text
-	Border lipgloss.Color // the frame of the input
+	Accent lipgloss.Style         // the prompt, selected entries, typed lines
+	Dim    lipgloss.Style         // hints and secondary text
+	Frame  lipgloss.TerminalColor // the frame of the input and the rule under the header
 }
 
 // Options configures a console.

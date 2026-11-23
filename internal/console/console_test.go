@@ -96,7 +96,7 @@ func (fakeUI) Foreground(fn func() error) error { return fn() }
 func newTestModel(handle func(line string) bool) *model {
 	plain := lipgloss.NewStyle()
 	m := newModel(Options{
-		Theme:     Theme{Accent: plain, Dim: plain},
+		Theme:     Theme{Accent: plain, Dim: plain, Frame: lipgloss.NoColor{}},
 		Title:     "H2H",
 		Commands:  testCommands,
 		Arguments: testArguments,

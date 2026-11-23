@@ -8,9 +8,9 @@ import (
 	"github.com/Selkomark/H2H/internal/session"
 )
 
-// styles is the visual vocabulary of h2h's output. It uses the terminal's
-// own sixteen colours, so it follows the user's theme, light or dark.
-// lipgloss drops all styling when the output is not a terminal or NO_COLOR
+// styles is the visual vocabulary of h2h's output. States use the
+// terminal's own colours, so they follow the user's theme. lipgloss drops
+// all styling when the output is not a terminal or NO_COLOR
 // is set.
 type styles struct {
 	title  lipgloss.Style // headings
@@ -21,13 +21,19 @@ type styles struct {
 	bad    lipgloss.Style
 }
 
-// accentColor is the one colour that marks H2H's own interface.
-const accentColor = lipgloss.Color("6")
+// The two colours of H2H's own interface. Each has a variant for light and
+// for dark terminals, so neither disappears into the background.
+var (
+	// accentColor is a soft green, for the text the user can act on.
+	accentColor = lipgloss.AdaptiveColor{Light: "#2F7D4F", Dark: "#A3D9A5"}
+	// frameColor is for borders and rules: white on a dark terminal.
+	frameColor = lipgloss.AdaptiveColor{Light: "#3A3A3A", Dark: "#FFFFFF"}
+)
 
 func newStyles() styles {
 	return styles{
 		title:  lipgloss.NewStyle().Bold(true),
-		accent: lipgloss.NewStyle().Bold(true).Foreground(accentColor),
+		accent: lipgloss.NewStyle().Foreground(accentColor),
 		dim:    lipgloss.NewStyle().Faint(true),
 		good:   lipgloss.NewStyle().Foreground(lipgloss.Color("2")),
 		warn:   lipgloss.NewStyle().Foreground(lipgloss.Color("3")),

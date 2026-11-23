@@ -190,7 +190,7 @@ func (e *env) console() error {
 	return console.Run(console.Options{
 		In:    e.in,
 		Out:   e.tty,
-		Theme: console.Theme{Accent: e.st.accent, Dim: e.st.dim, Border: accentColor},
+		Theme: console.Theme{Accent: e.st.accent, Dim: e.st.dim, Frame: frameColor},
 		Title: e.st.accent.Render("H2H") + " " + e.st.dim.Render(Version+"  ·  ") + displayPath(e.root, os.Getenv("HOME"), 40) +
 			e.st.dim.Render("  ·  default harness ") + harnessName,
 		Intro:     intro,

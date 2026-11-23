@@ -342,7 +342,7 @@ func (m *model) View() string {
 		return ""
 	}
 	th := m.o.Theme
-	rule := th.Dim.Render(strings.Repeat("─", m.width))
+	rule := lipgloss.NewStyle().Foreground(th.Frame).Render(strings.Repeat("─", m.width))
 	parts := []string{clip(m.o.Title, m.width), clip(m.status, m.width), rule, m.view.View()}
 
 	shown := m.shown()
@@ -382,7 +382,7 @@ func (m *model) View() string {
 			hint = exitHint
 		}
 	}
-	box := lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(th.Border).Padding(0, 1).Width(m.width - 2)
+	box := lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(th.Frame).Padding(0, 1).Width(m.width - 2)
 	parts = append(parts, box.Render(body), th.Dim.Render(clip(" "+hint, m.width)))
 	return strings.Join(parts, "\n")
 }
