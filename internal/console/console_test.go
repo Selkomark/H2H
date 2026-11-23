@@ -100,6 +100,7 @@ func newTestModel(handle func(line string) bool) *model {
 		Title:     "H2H",
 		Commands:  testCommands,
 		Arguments: testArguments,
+		Views:     []View{{Name: "Sessions", Command: "/ps", Render: func() string { return "SESSION TABLE" }}},
 		Handle:    func(_ context.Context, _ UI, line string) bool { return handle(line) },
 	}, fakeUI{})
 	m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
@@ -148,20 +149,54 @@ func TestTypingShowsSuggestionsAndTabCompletes(t *testing.T) {
 func TestEnterRunsHighlightedCommand(t *testing.T) {
 	var ran []string
 	m := newTestModel(func(line string) bool { ran = append(ran, line); return false })
-	typeText(m, "/p")
+	typeText(m, "/sto")
 	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	if !m.busy {
 		t.Fatal("after enter: not busy")
 	}
 	run(m, cmd)
-	if len(ran) != 1 || ran[0] != "/ps" {
-		t.Errorf("handler got %q, want [/ps]", ran)
+	if len(ran) != 1 || ran[0] != "/stop" {
+		t.Errorf("handler got %q, want [/stop]", ran)
 	}
 	if m.busy || m.input.Value() != "" {
 		t.Errorf("after the command: busy = %v, line = %q; want idle and empty", m.busy, m.input.Value())
 	}
-	if !strings.Contains(m.transcript, "> /ps") {
+	if !strings.Contains(m.transcript, "> /stop") {
 		t.Errorf("transcript = %q; want the typed line echoed", m.transcript)
+	}
+}
+
+func TestViewCommandSwitchesTab(t *testing.T) {
+	var ran []string
+	m := newTestModel(func(line string) bool { ran = append(ran, line); return false })
+	if strings.Contains(m.View(), "SESSION TABLE") {
+		t.Fatal("the sessions view is showing before it was asked for")
+	}
+	typeText(m, "/ps")
+	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	run(m, cmd)
+	if len(ran) != 0 {
+		t.Errorf("handler got %q; a view command must not run anything", ran)
+	}
+	if m.tab != 1 || !strings.Contains(m.View(), "SESSION TABLE") {
+		t.Errorf("after /ps: tab = %d; want the sessions view on screen:\n%s", m.tab, m.View())
+	}
+
+	// Any other line brings the transcript back, so its output is seen.
+	typeText(m, "hello")
+	_, cmd = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	run(m, cmd)
+	if m.tab != 0 || len(ran) != 1 {
+		t.Errorf("after another line: tab = %d, handler got %q; want the transcript and one call", m.tab, ran)
+	}
+
+	m.Update(tea.KeyMsg{Type: tea.KeyShiftTab})
+	if m.tab != 1 {
+		t.Errorf("after shift+tab: tab = %d, want 1", m.tab)
+	}
+	m.Update(tea.KeyMsg{Type: tea.KeyShiftTab})
+	if m.tab != 0 {
+		t.Errorf("after shift+tab twice: tab = %d, want 0", m.tab)
 	}
 }
 
@@ -238,16 +273,22 @@ func TestConfirm(t *testing.T) {
 }
 
 func TestViewFitsTheScreen(t *testing.T) {
-	m := newTestModel(func(string) bool { return false })
-	m.print(strings.Repeat("a long line of output that has to wrap somewhere ", 20) + "\n")
-	typeText(m, "/")
-	lines := strings.Split(m.View(), "\n")
-	if len(lines) != 24 {
-		t.Errorf("view has %d lines, want exactly the screen height of 24", len(lines))
-	}
-	for n, l := range lines {
-		if w := lipgloss.Width(l); w > 80 {
-			t.Errorf("line %d is %d wide, want at most 80: %q", n, w, l)
+	for _, tab := range []int{0, 1} {
+		m := newTestModel(func(string) bool { return false })
+		m.tab = tab
+		m.print(strings.Repeat("a long line of output that has to wrap somewhere ", 20) + "\n")
+		typeText(m, "/")
+		lines := strings.Split(m.View(), "\n")
+		if len(lines) != 24 {
+			t.Errorf("tab %d: view has %d lines, want exactly the screen height of 24", tab, len(lines))
+		}
+		for n, l := range lines {
+			if w := lipgloss.Width(l); w > 80 {
+				t.Errorf("tab %d: line %d is %d wide, want at most 80: %q", tab, n, w, l)
+			}
+		}
+		if !strings.HasPrefix(lines[0], "╭") || !strings.HasPrefix(lines[len(lines)-2], "╰") {
+			t.Errorf("tab %d: the page is not framed:\n%s", tab, m.View())
 		}
 	}
 }

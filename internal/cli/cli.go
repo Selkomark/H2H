@@ -195,6 +195,7 @@ func (e *env) console() error {
 			e.st.dim.Render("  ·  default harness ") + harnessName,
 		Intro:     intro,
 		Status:    e.statusLine,
+		Views:     []console.View{{Name: "Sessions", Command: "/ps", Render: e.sessionsView}},
 		Commands:  suggestions,
 		Arguments: e.argumentSuggestions,
 		Handle: func(ctx context.Context, ui console.UI, line string) bool {

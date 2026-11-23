@@ -238,13 +238,13 @@ What this does not cover:
 
 H2H is a command-line tool first. The web UI is the same tool started with a flag.
 
-Run with no arguments, `h2h` opens its console. It takes the whole screen: session states at the top, a scrolling transcript, and an input at the bottom with history and a suggestion list. Each command is typed with a leading slash, such as `/ps`. Attaching to a session or opening an editor hands the terminal over and returns to the console afterwards. Input that is not a terminal, such as a pipe, is read line by line instead. The console and the shell commands call the same code. Text without a slash is a question for the default harness; see [design.md](design.md).
+Run with no arguments, `h2h` opens its console. It takes the whole screen as one framed page: a header with tabs and the session states, a middle section, and an input at the bottom with history and a suggestion list. The Console tab is a scrolling transcript. The Sessions tab is a live table of sessions; `/ps` switches to it, Shift+Tab moves between tabs, and running any other command brings the transcript back. Each command is typed with a leading slash, such as `/ps`. Attaching to a session or opening an editor hands the terminal over and returns to the console afterwards. Input that is not a terminal, such as a pipe, is read line by line instead. The console and the shell commands call the same code. Text without a slash is a question for the default harness; see [design.md](design.md).
 
 | Command | Does | Status |
 |---|---|---|
 | `h2h` | Opens the console | Built |
 | `h2h start [harness]` | Starts a session of a harness, the default one if none is named | Built |
-| `h2h ps` | Lists sessions with harness, state, age and workspace. Domain and ticket come later | Built |
+| `h2h ps` | Lists sessions with harness, state, age and workspace. In the console, `/ps` opens the Sessions tab instead. Domain and ticket come later | Built |
 | `h2h logs [-f] [session]` | Prints or follows one session's terminal log | Built |
 | `h2h attach [session]` | Opens the session's terminal. Ctrl-\ leaves it running | Built |
 | `h2h stop [session]`, `h2h rm [session]` | Stops a session; removes a stopped session and its workspace | Built |

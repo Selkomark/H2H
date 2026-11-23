@@ -229,6 +229,21 @@ func (e *env) rm(ctx context.Context, args []string) error {
 	return nil
 }
 
+// sessionsView is the content of the console's Sessions tab.
+func (e *env) sessionsView() string {
+	infos, err := session.List(e.root)
+	if err != nil {
+		return e.st.bad.Render(err.Error())
+	}
+	if len(infos) == 0 {
+		return e.st.dim.Render("No sessions. Start one with ") + e.st.accent.Render("/start [harness]")
+	}
+	return sessionTable(e.root, infos, e.st) + "\n" +
+		e.st.dim.Render("Open one with ") + e.st.accent.Render("/attach <session>") +
+		e.st.dim.Render(", stop it with ") + e.st.accent.Render("/stop") +
+		e.st.dim.Render(", remove it with ") + e.st.accent.Render("/rm") + e.st.dim.Render(".")
+}
+
 // statusLine summarises the sessions in one line, for the top of the console.
 func (e *env) statusLine() string {
 	infos, err := session.List(e.root)

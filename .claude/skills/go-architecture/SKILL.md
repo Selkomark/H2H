@@ -53,7 +53,7 @@ H2H/
 │       └── main.go         entry point only; calls internal/cli
 ├── internal/
 │   ├── cli/                the commands, shared by the shell and the console, and their styling
-│   ├── console/            the full-screen interface: transcript, input, suggestions
+│   ├── console/            the full-screen interface: framed page, tabs, transcript, input, suggestions
 │   ├── orchestrator/       applies the rules to ticket and session events
 │   ├── ticket/             ticket type, states and transitions (pure)
 │   ├── policy/             permission and approval decisions (pure)

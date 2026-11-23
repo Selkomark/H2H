@@ -1,6 +1,6 @@
-// Package console is the full-screen interface of h2h: a transcript that
-// fills the screen, an input at the bottom, and suggestions that appear as
-// the user types.
+// Package console is the full-screen interface of h2h: one framed page with
+// a header and tabs at the top, a transcript or a live view in the middle,
+// an input at the bottom, and suggestions that appear as the user types.
 //
 // It knows nothing about what a line means. Commands live in package cli,
 // which hands the console its suggestions and a handler, so the console and
@@ -39,7 +39,19 @@ type UI interface {
 type Theme struct {
 	Accent lipgloss.Style         // the prompt, selected entries, typed lines
 	Dim    lipgloss.Style         // hints and secondary text
-	Frame  lipgloss.TerminalColor // the frame of the input and the rule under the header
+	Frame  lipgloss.TerminalColor // the frame around the page and the rules inside it
+}
+
+// View is a page of live information with its own tab, beside the
+// transcript.
+type View struct {
+	// Name is the label of the tab.
+	Name string
+	// Command, when typed, switches to this view instead of running anything.
+	Command string
+	// Render returns the content of the view. It is called every few
+	// seconds while the console is open.
+	Render func() string
 }
 
 // Options configures a console.
@@ -54,6 +66,8 @@ type Options struct {
 	// Status returns the line under the title. It is called every few
 	// seconds, so it can show live state.
 	Status func() string
+	// Views are the tabs that follow the transcript's own tab.
+	Views []View
 	// Commands are offered while the first word of a line is typed.
 	Commands []Suggestion
 	// Arguments returns what to offer after a command, given its name

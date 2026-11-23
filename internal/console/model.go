@@ -13,14 +13,20 @@ import (
 )
 
 const (
-	maxSuggestions  = 10
-	maxTranscript   = 400_000 // bytes kept in the transcript
-	statusInterval  = 2 * time.Second
-	headerHeight    = 3 // title, status, rule
-	inputHeight     = 3 // framed input
-	footerHeight    = 1
-	promptText      = "> "
-	idleHint        = "enter send · tab complete · ↑↓ history · pgup/pgdn scroll · ctrl+c clear or exit"
+	maxSuggestions = 10
+	maxTranscript  = 400_000 // bytes kept in the transcript
+	statusInterval = 2 * time.Second
+	promptText     = "> "
+	transcriptTab  = "Console"
+
+	// Rows the page spends outside the middle section: the top border, the
+	// title and the tabs; the rule above the middle; the rule above the
+	// input, the input and the bottom border; and the hint under the page.
+	chromeHeight = 3 + 1 + 3 + 1
+	// Columns the frame and its padding take on each line.
+	chromeWidth = 4
+
+	idleHint        = "enter send · tab complete · shift+tab switch view · ↑↓ history · pgup/pgdn scroll"
 	busyHint        = "working · ctrl+c to cancel"
 	confirmHint     = "y to confirm · any other key to decline"
 	exitHint        = "press ctrl+c again to exit"
@@ -29,9 +35,12 @@ const (
 
 // Messages from a running command and from timers.
 type (
-	outputMsg  string
-	doneMsg    struct{ quit bool }
-	statusMsg  string
+	outputMsg string
+	doneMsg   struct{ quit bool }
+	statusMsg struct {
+		status string
+		views  []string
+	}
 	confirmMsg struct {
 		question string
 		reply    chan<- bool
@@ -53,6 +62,8 @@ type model struct {
 	width, height int
 	transcript    string
 	status        string
+	tab           int      // 0 is the transcript, n is Views[n-1]
+	views         []string // the last rendering of each view
 
 	offers      []Suggestion
 	forArgument bool
@@ -80,10 +91,25 @@ func newModel(o Options, ui UI) *model {
 	sp.Style = o.Theme.Accent
 
 	m := &model{o: o, ui: ui, input: in, view: viewport.New(0, 0), spin: sp, transcript: o.Intro}
-	if o.Status != nil {
-		m.status = o.Status()
-	}
+	m.apply(m.snapshot())
 	return m
+}
+
+// snapshot reads the live state shown outside the transcript. It may touch
+// the disk, so it runs off the interface's own loop where it can.
+func (m *model) snapshot() statusMsg {
+	var s statusMsg
+	if m.o.Status != nil {
+		s.status = m.o.Status()
+	}
+	for _, v := range m.o.Views {
+		s.views = append(s.views, v.Render())
+	}
+	return s
+}
+
+func (m *model) apply(s statusMsg) {
+	m.status, m.views = s.status, s.views
 }
 
 func (m *model) Init() tea.Cmd {
@@ -91,10 +117,7 @@ func (m *model) Init() tea.Cmd {
 }
 
 func (m *model) pollStatus() tea.Cmd {
-	if m.o.Status == nil {
-		return nil
-	}
-	return tea.Tick(statusInterval, func(time.Time) tea.Msg { return statusMsg(m.o.Status()) })
+	return tea.Tick(statusInterval, func(time.Time) tea.Msg { return m.snapshot() })
 }
 
 func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -110,14 +133,12 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case statusMsg:
-		m.status = string(msg)
+		m.apply(msg)
 		return m, m.pollStatus()
 
 	case doneMsg:
 		m.busy, m.cancel = false, nil
-		if m.o.Status != nil {
-			m.status = m.o.Status() // a command usually changes what the status shows
-		}
+		m.apply(m.snapshot()) // a command usually changes what the views show
 		if msg.quit {
 			return m, tea.Quit
 		}
@@ -165,6 +186,10 @@ func (m *model) key(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case tea.KeyPgDown:
 		m.view.HalfPageDown()
+		return m, nil
+	case tea.KeyShiftTab:
+		m.tab = (m.tab + 1) % (len(m.o.Views) + 1)
+		m.apply(m.snapshot())
 		return m, nil
 	}
 
@@ -236,6 +261,18 @@ func (m *model) key(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if line == "" {
 			return m, nil
 		}
+		m.remember(line)
+		m.setLine("")
+		// A view's command shows the view. Anything else runs, with the
+		// transcript in front so its output is seen.
+		for n, v := range m.o.Views {
+			if line == v.Command {
+				m.tab = n + 1
+				m.apply(m.snapshot())
+				return m, nil
+			}
+		}
+		m.tab = 0
 		return m, m.submit(line)
 	}
 
@@ -250,11 +287,6 @@ func (m *model) key(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 // submit runs a line through the handler, off the interface's own loop.
 func (m *model) submit(line string) tea.Cmd {
-	if len(m.history) == 0 || m.history[len(m.history)-1] != line {
-		m.history = append(m.history, line)
-	}
-	m.histPos = len(m.history)
-	m.setLine("")
 	m.print(m.o.Theme.Accent.Render(promptText+line) + "\n")
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -264,6 +296,14 @@ func (m *model) submit(line string) tea.Cmd {
 		return doneMsg{quit: m.o.Handle(ctx, m.ui, line)}
 	}
 	return tea.Batch(m.spin.Tick, run)
+}
+
+// remember adds a line to the history.
+func (m *model) remember(line string) {
+	if len(m.history) == 0 || m.history[len(m.history)-1] != line {
+		m.history = append(m.history, line)
+	}
+	m.histPos = len(m.history)
 }
 
 // recall moves through the lines entered before.
@@ -326,26 +366,98 @@ func (m *model) print(text string) {
 	}
 }
 
+// middleHeight is how many rows the section between the header and the
+// input has.
+func (m *model) middleHeight() int {
+	return max(1, m.height-chromeHeight)
+}
+
 // layout sizes the transcript to the space the other parts leave.
 func (m *model) layout() {
 	if m.width == 0 {
 		return
 	}
-	m.input.Width = max(1, m.width-4-lipgloss.Width(promptText)-1)
-	m.view.Width = m.width
-	m.view.Height = max(1, m.height-headerHeight-inputHeight-footerHeight-len(m.shown()))
-	m.view.SetContent(lipgloss.NewStyle().Width(m.width).Render(strings.TrimRight(m.transcript, "\n")))
+	inner := max(1, m.width-chromeWidth)
+	m.input.Width = max(1, inner-lipgloss.Width(promptText)-1)
+	m.view.Width = inner
+	m.view.Height = max(1, m.middleHeight()-len(m.shown()))
+	m.view.SetContent(lipgloss.NewStyle().Width(inner).Render(strings.TrimRight(m.transcript, "\n")))
 }
+
+// The page is three framed sections stacked into one box. The lower two
+// start with a rule that joins the sides, which is their top border.
+var (
+	topFrame = lipgloss.RoundedBorder()
+	midFrame = lipgloss.Border{Top: "─", Left: "│", Right: "│", TopLeft: "├", TopRight: "┤"}
+	endFrame = lipgloss.Border{Top: "─", Bottom: "─", Left: "│", Right: "│", TopLeft: "├", TopRight: "┤", BottomLeft: "╰", BottomRight: "╯"}
+)
 
 func (m *model) View() string {
 	if m.width == 0 {
 		return ""
 	}
 	th := m.o.Theme
-	rule := lipgloss.NewStyle().Foreground(th.Frame).Render(strings.Repeat("─", m.width))
-	parts := []string{clip(m.o.Title, m.width), clip(m.status, m.width), rule, m.view.View()}
+	inner := max(1, m.width-chromeWidth)
+	section := lipgloss.NewStyle().BorderForeground(th.Frame).Padding(0, 1).Width(m.width - 2)
+
+	header := section.Border(topFrame, true, true, false, true).
+		Render(clip(m.o.Title, inner) + "\n" + m.tabRow(inner))
 
 	shown := m.shown()
+	rows := m.suggestionRows(shown, inner)
+	var middle []string
+	if m.tab == 0 {
+		middle = append(middle, m.view.View())
+	} else {
+		middle = append(middle, fit(m.views[m.tab-1], inner, m.middleHeight()-len(rows)))
+	}
+	middle = append(middle, rows...)
+	body := section.Border(midFrame, true, true, false, true).Render(strings.Join(middle, "\n"))
+
+	var line, hint string
+	switch {
+	case m.confirm != nil:
+		line, hint = th.Accent.Render(m.confirm.question)+" [y/N]", confirmHint
+	case m.busy:
+		line, hint = m.spin.View()+" "+th.Dim.Render("working"), busyHint
+	default:
+		line, hint = m.input.View(), idleHint
+		if len(shown) > 0 {
+			hint = suggestionsHint
+		}
+		if m.exitArmed {
+			hint = exitHint
+		}
+	}
+	input := section.Border(endFrame).Render(clip(line, inner))
+
+	return strings.Join([]string{header, body, input, th.Dim.Render(clip(" "+hint, m.width))}, "\n")
+}
+
+// tabRow shows the tabs on the left and the status on the right.
+func (m *model) tabRow(width int) string {
+	th := m.o.Theme
+	names := []string{transcriptTab}
+	for _, v := range m.o.Views {
+		names = append(names, v.Name)
+	}
+	for n, name := range names {
+		if n == m.tab {
+			names[n] = th.Accent.Underline(true).Render(name)
+		} else {
+			names[n] = th.Dim.Render(name)
+		}
+	}
+	tabs := strings.Join(names, "   ")
+	if gap := width - lipgloss.Width(tabs) - lipgloss.Width(m.status); gap >= 3 {
+		return tabs + strings.Repeat(" ", gap) + m.status
+	}
+	return clip(tabs, width)
+}
+
+// suggestionRows draws the suggestions on screen, one per row.
+func (m *model) suggestionRows(shown []Suggestion, width int) []string {
+	th := m.o.Theme
 	nameWidth := 0
 	for _, s := range shown {
 		nameWidth = max(nameWidth, lipgloss.Width(strings.TrimSpace(s.Text+" "+s.Usage)))
@@ -354,41 +466,34 @@ func (m *model) View() string {
 	if len(m.offers) > maxSuggestions {
 		offset = min(max(0, m.selected-maxSuggestions+1), len(m.offers)-maxSuggestions)
 	}
+	rows := make([]string, len(shown))
 	for i, s := range shown {
-		name := s.Text
-		if s.Usage != "" {
-			name += " " + s.Usage
-		}
+		name := strings.TrimSpace(s.Text + " " + s.Usage)
 		name += strings.Repeat(" ", nameWidth-lipgloss.Width(name)+2)
 		row := "  " + name + th.Dim.Render(s.Help)
 		if i+offset == m.selected {
 			row = th.Accent.Render("› "+name) + s.Help
 		}
-		parts = append(parts, clip(row, m.width))
+		rows[i] = clip(row, width)
 	}
-
-	var body, hint string
-	switch {
-	case m.confirm != nil:
-		body, hint = th.Accent.Render(m.confirm.question)+" [y/N]", confirmHint
-	case m.busy:
-		body, hint = m.spin.View()+" "+th.Dim.Render("working"), busyHint
-	default:
-		body, hint = m.input.View(), idleHint
-		if len(shown) > 0 {
-			hint = suggestionsHint
-		}
-		if m.exitArmed {
-			hint = exitHint
-		}
-	}
-	box := lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(th.Frame).Padding(0, 1).Width(m.width - 2)
-	parts = append(parts, box.Render(body), th.Dim.Render(clip(" "+hint, m.width)))
-	return strings.Join(parts, "\n")
+	return rows
 }
 
-// clip cuts a line to the width of the screen, so it can never wrap and
-// push the layout out of place.
+// clip cuts a line to a width, so it can never wrap and push the layout
+// out of place.
 func clip(s string, width int) string {
 	return lipgloss.NewStyle().MaxWidth(width).Render(s)
+}
+
+// fit makes text exactly height rows of at most width columns.
+func fit(text string, width, height int) string {
+	lines := strings.Split(strings.TrimRight(text, "\n"), "\n")
+	for len(lines) < height {
+		lines = append(lines, "")
+	}
+	lines = lines[:max(0, height)]
+	for n, l := range lines {
+		lines[n] = clip(l, width)
+	}
+	return strings.Join(lines, "\n")
 }

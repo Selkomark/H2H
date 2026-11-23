@@ -112,7 +112,7 @@ Each harness runs in its own session under a small keeper process that holds its
 
 ### Console
 
-`h2h` run with no arguments opens a full-screen console: a transcript above, a live line of session states at the top, and an input at the bottom where the user types `/commands` to manage sessions and config, or plain text. Typing `/` lists the commands, and after a command it offers what can follow, such as the running sessions. It looks like a harness and is not one. It is the operations centre for the team, and every command in it is also available from the shell.
+`h2h` run with no arguments opens a full-screen console: a framed page with tabs and a live line of session states at the top, a transcript or a live view such as the session list in the middle, and an input at the bottom where the user types `/commands` to manage sessions and config, or plain text. Typing `/` lists the commands, and after a command it offers what can follow, such as the running sessions. It looks like a harness and is not one. It is the operations centre for the team, and every command in it is also available from the shell.
 
 Plain text typed into the console is answered by the default harness in a single read-only run, with the session list and the commands as context. H2H holds no model login of its own, so what answers is whatever harness the user has chosen as default.
 
