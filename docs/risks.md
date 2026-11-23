@@ -31,7 +31,7 @@ Permissions were the largest gap and have their own document: [permissions.md](p
 
 ## Validation before a build
 
-Three of these could invalidate the design, so they were tested first, as [three short validation spikes](https://github.com/Selkomark/multi-agent-playground/tree/main/experiments/02-h2h/validations). The results are in [findings.md](findings.md).
+Three of these could invalidate the design, so they were tested first, as three short validation spikes. The results are in [findings.md](findings.md).
 
 | Gap | Spike | Outcome |
 |---|---|---|

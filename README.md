@@ -40,7 +40,7 @@ Three short spikes tested the riskiest assumptions on Claude Code, Copilot CLI a
 - **Permissions:** a permission request can be answered in code: allow, deny with instructions the model then follows, or hold for the user's answer. No prompt reached the screen.
 - **Baseline:** on one small task, a builder and a tester in separate sessions cost about the same as one harness using sub-agents. Testers from a different product found two real defects that a same-product tester and 75 hidden tests missed.
 
-The detail of each test is in [docs/findings.md](docs/findings.md). The spike code lives in a separate repository, linked from there.
+The detail of each test is in [docs/findings.md](docs/findings.md). The spike code was throwaway and is not part of this repository.
 
 ## Principles
 
@@ -67,6 +67,8 @@ Read in this order:
 - [docs/roadmap.md](docs/roadmap.md): build stages and open questions
 
 Diagrams in these documents are Mermaid and follow the rules in `.claude/skills/mermaid-diagrams/`.
+
+Go code follows the package layout, dependency rule and principles (least privilege, KISS, DRY) in `.claude/skills/go-architecture/`.
 
 ## Licence
 

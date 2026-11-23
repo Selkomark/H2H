@@ -1,6 +1,6 @@
 # Findings: H2H
 
-Results of the three validation spikes run before any build, on 2026-11-20. The spikes were run in a separate repository, before this one existed. Their code and the full write-up of each are kept with [the validation spikes](https://github.com/Selkomark/multi-agent-playground/tree/main/experiments/02-h2h/validations). This document records what was tested, in enough detail to judge the results, and what the results change in the design.
+Results of the three validation spikes run before any build, on 2026-11-20. The spike code was throwaway, written only to answer these questions, and is not part of this repository. This document is the record that remains: what was tested, in enough detail to judge the results, and what the results change in the design.
 
 ## Summary
 
@@ -22,7 +22,7 @@ None of the three invalidated the design. Each one changed a part of it, listed 
 | Codex CLI | 0.171.0, default model |
 | Gemini CLI | Excluded. It no longer offers a personal login |
 | Spike code | Python, standard library only. Throwaway, not the start of H2H |
-| Workspaces | A fresh folder per run, inside the repository the spikes were run from |
+| Workspaces | A fresh folder per run, inside the repository the spikes were run from, which was not this one |
 
 Each harness ran on the login already present on the machine. Nothing was mocked: every run made real model calls.
 

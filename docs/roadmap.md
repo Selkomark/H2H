@@ -10,7 +10,7 @@ Two things come first:
 - **Permissive dependencies only.** Decided: every dependency must carry a licence a corporate audit accepts, checked in the build from the first stage. See [licensing.md](licensing.md).
 - **H2H's own licence.** Decided: Apache-2.0. See [licensing.md](licensing.md).
 - **Try the existing tools.** Optional. Use Gas Town and CLI Agent Orchestrator to learn what works in practice.
-- **Validate the riskiest assumptions.** Done on 2026-11-20, as [three short validation spikes](https://github.com/Selkomark/multi-agent-playground/tree/main/experiments/02-h2h/validations): detecting session state, answering permission requests by policy, and a baseline against one harness with sub-agents. None invalidated the design, and each changed part of it. See [findings.md](findings.md).
+- **Validate the riskiest assumptions.** Done on 2026-11-20, as three short validation spikes: detecting session state, answering permission requests by policy, and a baseline against one harness with sub-agents. None invalidated the design, and each changed part of it. See [findings.md](findings.md).
 - **Repeat the baseline properly.** The baseline used one easy task and two or three runs per setup. Before relying on it, run a task hard enough for the builder to get wrong, at least five times per setup, with a tester of each product reviewing the same builder output.
 
 ## Stages
