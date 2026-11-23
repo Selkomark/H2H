@@ -20,7 +20,7 @@ The expected cost is coordination overhead. Similar tools exist and are known to
 
 ## Intended shape
 
-- **Tool:** a single `h2h` binary, written in Go. Run with no arguments it opens a console, an operations centre where the user types `/commands` or plain questions. Every command also works from the shell, and `h2h serve --port <n>` adds a web UI.
+- **Tool:** a single `h2h` binary, written in Go. Run with no arguments it opens a full-screen console, an operations centre with the input at the bottom, where the user types `/commands` or plain questions and suggestions appear while typing. Every command also works from the shell, and `h2h serve --port <n>` adds a web UI.
 - **Default harness:** one harness in the pool is the default. It runs new sessions when none is named and answers what the user types into the console. H2H ships with Claude Code as the default, and the user can change it, for example where a company allows only Copilot or Codex.
 - **Sessions:** each harness runs in its own terminal session and workspace under a small keeper process, so sessions survive a crash of H2H and can be rejoined.
 - **Visibility:** the user can list active harnesses, follow their logs, and jump into any session's terminal.

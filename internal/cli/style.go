@@ -19,18 +19,19 @@ type styles struct {
 	good   lipgloss.Style
 	warn   lipgloss.Style
 	bad    lipgloss.Style
-	box    lipgloss.Style // the console's welcome panel
 }
+
+// accentColor is the one colour that marks H2H's own interface.
+const accentColor = lipgloss.Color("6")
 
 func newStyles() styles {
 	return styles{
 		title:  lipgloss.NewStyle().Bold(true),
-		accent: lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("6")),
+		accent: lipgloss.NewStyle().Bold(true).Foreground(accentColor),
 		dim:    lipgloss.NewStyle().Faint(true),
 		good:   lipgloss.NewStyle().Foreground(lipgloss.Color("2")),
 		warn:   lipgloss.NewStyle().Foreground(lipgloss.Color("3")),
 		bad:    lipgloss.NewStyle().Foreground(lipgloss.Color("1")),
-		box:    lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("6")).Padding(0, 1),
 	}
 }
 
@@ -38,7 +39,7 @@ func newStyles() styles {
 // person, such as the context given to a harness.
 func plainStyles() styles {
 	s := lipgloss.NewStyle()
-	return styles{title: s, accent: s, dim: s, good: s, warn: s, bad: s, box: s}
+	return styles{title: s, accent: s, dim: s, good: s, warn: s, bad: s}
 }
 
 // state picks the style for a session state.

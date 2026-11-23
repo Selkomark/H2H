@@ -42,9 +42,11 @@ Direct dependencies, checked by hand on 2026-11-23 from the licence file in each
 | Dependency | Version | Licence | Needed for |
 |---|---|---|---|
 | `github.com/creack/pty` | v1.1.24 | MIT | Pseudo-terminals for harness sessions |
-| `golang.org/x/term` | v0.48.0 | BSD 3-Clause | Raw terminal mode and the console's line editing |
+| `golang.org/x/term` | v0.48.0 | BSD 3-Clause | Raw terminal mode while attached to a session |
 | `github.com/BurntSushi/toml` | v1.6.0 | MIT | Reading the config file |
 | `github.com/charmbracelet/lipgloss` | v1.1.0 | MIT | Colour and layout of console output |
+| `github.com/charmbracelet/bubbletea` | v1.3.10 | MIT | The full-screen console |
+| `github.com/charmbracelet/bubbles` | v1.0.0 | MIT | The console's input line, scrolling transcript and spinner |
 
 Everything they pull into the binary is MIT or BSD 3-Clause as well. The full list is in `go.mod`.
 

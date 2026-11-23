@@ -1,118 +1,106 @@
-// Package console is the interactive prompt of h2h: it reads lines with
-// editing, history and completion, and hands each one to a handler.
+// Package console is the full-screen interface of h2h: a transcript that
+// fills the screen, an input at the bottom, and suggestions that appear as
+// the user types.
 //
-// It knows nothing about what the lines mean. Commands live in package cli,
-// so the console and the command line stay two views onto the same code.
+// It knows nothing about what a line means. Commands live in package cli,
+// which hands the console its suggestions and a handler, so the console and
+// the command line stay two views onto the same code.
 package console
 
 import (
-	"bufio"
 	"context"
-	"errors"
 	"io"
 	"os"
-	"os/signal"
-	"strings"
 
-	"golang.org/x/term"
+	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 )
+
+// Suggestion is one entry offered while the user types.
+type Suggestion struct {
+	Text  string // what is inserted, such as "/ps" or a session ID
+	Usage string // arguments it takes, if any
+	Help  string // one line on what it is
+}
+
+// UI is how a running command talks to the user through the console.
+type UI interface {
+	// Write adds text to the transcript.
+	io.Writer
+	// Confirm asks a yes-or-no question and waits for the answer.
+	Confirm(question string) bool
+	// Foreground gives fn the whole terminal, for an editor or an attached
+	// session, and takes the screen back when fn returns.
+	Foreground(fn func() error) error
+}
+
+// Theme is the look of the console, supplied by the caller so the colours
+// are defined in one place.
+type Theme struct {
+	Accent lipgloss.Style // the prompt, selected entries, typed lines
+	Dim    lipgloss.Style // hints and secondary text
+	Border lipgloss.Color // the frame of the input
+}
 
 // Options configures a console.
 type Options struct {
-	In     *os.File
-	Out    io.Writer
-	Prompt string
-	// Completions are the words offered when the user presses Tab on the
-	// first word of a line.
-	Completions []string
+	In    *os.File
+	Out   *os.File
+	Theme Theme
+	// Title is shown at the top of the screen.
+	Title string
+	// Intro is the first text in the transcript.
+	Intro string
+	// Status returns the line under the title. It is called every few
+	// seconds, so it can show live state.
+	Status func() string
+	// Commands are offered while the first word of a line is typed.
+	Commands []Suggestion
+	// Arguments returns what to offer after a command, given its name
+	// without the slash.
+	Arguments func(command string) []Suggestion
 	// Handle runs one line and reports whether the console should close.
 	// Its context is cancelled when the user presses Ctrl-C while it runs.
-	Handle func(ctx context.Context, line string) (quit bool)
+	Handle func(ctx context.Context, ui UI, line string) (quit bool)
 }
 
-// Run reads lines until the handler asks to quit or the input ends.
+// Run shows the console until the user leaves it.
 func Run(o Options) error {
-	fd := int(o.In.Fd())
-	if !term.IsTerminal(fd) {
-		return runPlain(o)
-	}
-	t := term.NewTerminal(struct {
-		io.Reader
-		io.Writer
-	}{o.In, o.Out}, o.Prompt)
-	t.AutoCompleteCallback = func(line string, pos int, key rune) (string, int, bool) {
-		if key != '\t' || pos != len(line) {
-			return "", 0, false
-		}
-		done, ok := complete(line, o.Completions)
-		return done, len(done), ok
-	}
-	for {
-		// The terminal is raw only while a line is being edited. A command
-		// then runs with an ordinary terminal, so it can print normally,
-		// start an editor or attach to a session.
-		old, err := term.MakeRaw(fd)
-		if err != nil {
-			return err
-		}
-		if w, h, err := term.GetSize(fd); err == nil && w > 0 && h > 0 {
-			_ = t.SetSize(w, h)
-		}
-		line, err := t.ReadLine()
-		_ = term.Restore(fd, old)
-		if errors.Is(err, io.EOF) { // Ctrl-D or Ctrl-C at the prompt
-			return nil
-		}
-		if err != nil {
-			return err
-		}
-		if handle(o, line) {
-			return nil
-		}
-	}
+	ui := &programUI{}
+	p := tea.NewProgram(newModel(o, ui), tea.WithAltScreen(), tea.WithInput(o.In), tea.WithOutput(o.Out))
+	ui.p = p
+	_, err := p.Run()
+	return err
 }
 
-// runPlain serves input that is not a terminal, such as a pipe or a script.
-func runPlain(o Options) error {
-	sc := bufio.NewScanner(o.In)
-	for sc.Scan() {
-		if handle(o, sc.Text()) {
-			return nil
-		}
-	}
-	return sc.Err()
+// programUI is the UI a command sees. Each call becomes a message to the
+// running program, so commands never touch the screen themselves.
+type programUI struct {
+	p *tea.Program
 }
 
-func handle(o Options, line string) (quit bool) {
-	line = strings.TrimSpace(line)
-	if line == "" {
-		return false
-	}
-	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
-	defer cancel()
-	return o.Handle(ctx, line)
+func (u *programUI) Write(b []byte) (int, error) {
+	u.p.Send(outputMsg(sanitize(string(b))))
+	return len(b), nil
 }
 
-// complete extends line to the only completion it is a prefix of, or to the
-// longest prefix shared by all that match.
-func complete(line string, words []string) (string, bool) {
-	var matches []string
-	for _, w := range words {
-		if strings.HasPrefix(w, line) {
-			matches = append(matches, w)
-		}
-	}
-	switch len(matches) {
-	case 0:
-		return "", false
-	case 1:
-		return matches[0] + " ", true
-	}
-	common := matches[0]
-	for _, m := range matches[1:] {
-		for !strings.HasPrefix(m, common) {
-			common = common[:len(common)-1]
-		}
-	}
-	return common, len(common) > len(line)
+func (u *programUI) Confirm(question string) bool {
+	reply := make(chan bool, 1)
+	u.p.Send(confirmMsg{question: question, reply: reply})
+	return <-reply
 }
+
+func (u *programUI) Foreground(fn func() error) error {
+	reply := make(chan error, 1)
+	u.p.Send(foregroundMsg{fn: fn, reply: reply})
+	return <-reply
+}
+
+// foreground adapts a function to what Bubble Tea runs with the terminal
+// released. The function uses the real terminal itself.
+type foreground struct{ fn func() error }
+
+func (f foreground) Run() error          { return f.fn() }
+func (f foreground) SetStdin(io.Reader)  {}
+func (f foreground) SetStdout(io.Writer) {}
+func (f foreground) SetStderr(io.Writer) {}

@@ -3,12 +3,15 @@
 package cli
 
 import (
+	"bufio"
 	"context"
 	"fmt"
 	"io"
 	"os"
 	"os/signal"
 	"strings"
+
+	"golang.org/x/term"
 
 	"github.com/Selkomark/H2H/internal/config"
 	"github.com/Selkomark/H2H/internal/console"
@@ -19,15 +22,45 @@ import (
 // Version is the version of this build.
 const Version = "0.1.0-dev"
 
-// env is what a command may use: the project it acts on and the user's
-// terminal.
+// env is what a command may use: the project it acts on and the ways to
+// reach the user.
 type env struct {
 	root    string
-	in      *os.File
-	out     io.Writer
-	errw    io.Writer
+	in      *os.File   // the terminal's input, for programs given the whole terminal
+	tty     *os.File   // the terminal's output, likewise
+	out     io.Writer  // where a command's output goes
+	errw    io.Writer  // where its errors go
+	ui      console.UI // questions to the user, and handing over the terminal
 	environ []string
 	st      styles
+}
+
+// shellUI serves a command run from the shell or from piped input, where
+// the terminal is used directly.
+type shellUI struct {
+	in  *os.File
+	out io.Writer
+}
+
+func (u shellUI) Write(b []byte) (int, error) { return u.out.Write(b) }
+
+func (u shellUI) Foreground(fn func() error) error { return fn() }
+
+// Confirm asks a yes-or-no question. Anything but yes is no.
+func (u shellUI) Confirm(question string) bool {
+	fmt.Fprintf(u.out, "%s [y/N] ", question)
+	// One byte at a time, so nothing typed after the answer is swallowed.
+	var line []byte
+	b := make([]byte, 1)
+	for {
+		n, err := u.in.Read(b)
+		if n == 0 || err != nil || b[0] == '\n' {
+			break
+		}
+		line = append(line, b[0])
+	}
+	answer := strings.ToLower(strings.TrimSpace(string(line)))
+	return answer == "y" || answer == "yes"
 }
 
 type command struct {
@@ -40,12 +73,12 @@ type command struct {
 func commands() []command {
 	return []command{
 		{"ps", "", "List sessions", (*env).ps},
-		{"start", "[harness]", "Start a session of a harness (the default one if none is named)", (*env).start},
+		{"start", "[harness]", "Start a session; the default harness if none is named", (*env).start},
 		{"attach", "[session]", "Open a session's terminal; leave it with Ctrl-\\", (*env).attach},
 		{"logs", "[-f] [session]", "Print a session's terminal log; -f follows it", (*env).logs},
 		{"stop", "[session]", "Stop a running session", (*env).stop},
 		{"rm", "[session]", "Remove a stopped session and its workspace", (*env).rm},
-		{"config", "[show | edit | <description>]", "Show the config, edit it, or describe a change in words", (*env).config},
+		{"config", "[show | edit | <text>]", "Show the config, edit it, or describe a change in words", (*env).config},
 		{"help", "", "Show this help", (*env).help},
 	}
 }
@@ -72,7 +105,8 @@ func Run(args []string) int {
 		}
 	}
 
-	e := &env{in: os.Stdin, out: os.Stdout, errw: os.Stderr, environ: os.Environ(), st: newStyles()}
+	e := &env{in: os.Stdin, tty: os.Stdout, out: os.Stdout, errw: os.Stderr, environ: os.Environ(), st: newStyles()}
+	e.ui = shellUI{in: e.in, out: e.out}
 	if len(args) > 0 && args[0] == "help" {
 		_ = e.help(context.Background(), nil)
 		return 0
@@ -129,52 +163,85 @@ func (e *env) dispatch(ctx context.Context, name string, args []string) error {
 	return fmt.Errorf("unknown command %q; see help", name)
 }
 
-// console runs the interactive prompt. A line starting with "/" is a
+// console opens the full-screen console. A line starting with "/" is a
 // command, and anything else is a question for the default harness.
 func (e *env) console() error {
-	cfg, err := config.Load(e.root)
-	if err != nil {
+	if !term.IsTerminal(int(e.in.Fd())) || !term.IsTerminal(int(e.tty.Fd())) {
+		return e.script()
+	}
+	harnessName := "the default harness"
+	cfg, cfgErr := config.Load(e.root)
+	if cfgErr == nil {
+		harnessName = cfg.DefaultHarness
+	}
+	intro := "Type " + e.st.accent.Render("/") + " to see the commands, or type a question for " + harnessName + ".\n" +
+		e.st.dim.Render("Sessions keep running after you leave.") + "\n\n"
+	if cfgErr != nil {
 		// A broken config must not lock the user out of /config edit.
-		e.fail(err)
-		fmt.Fprintln(e.errw, "Fix it with "+e.st.accent.Render("/config edit")+".")
-	} else {
-		fmt.Fprintln(e.out, e.st.box.Render(
-			e.st.accent.Render("H2H")+" "+e.st.dim.Render(Version)+"\n"+
-				e.st.dim.Render("project  ")+displayPath(e.root, os.Getenv("HOME"), 60)+"\n"+
-				e.st.dim.Render("harness  ")+cfg.DefaultHarness+e.st.dim.Render(" (default)")))
-		fmt.Fprintf(e.out, "%s for commands, or type a question for %s.\n\n", e.st.accent.Render("/help"), cfg.DefaultHarness)
+		intro = e.st.bad.Render("h2h: ") + cfgErr.Error() + "\nFix it with " + e.st.accent.Render("/config edit") + ".\n\n"
 	}
 
-	words := []string{"/exit"}
+	suggestions := []console.Suggestion{}
 	for _, c := range commands() {
-		words = append(words, "/"+c.name)
+		suggestions = append(suggestions, console.Suggestion{Text: "/" + c.name, Usage: c.usage, Help: c.help})
 	}
+	suggestions = append(suggestions, console.Suggestion{Text: "/exit", Help: "Leave the console; sessions keep running"})
+
 	return console.Run(console.Options{
-		In:          e.in,
-		Out:         e.out,
-		Prompt:      e.st.accent.Render("h2h") + e.st.dim.Render(" > "),
-		Completions: words,
-		Handle: func(ctx context.Context, line string) bool {
-			var err error
-			switch {
-			case line == "/exit" || line == "/quit":
-				return true
-			case strings.HasPrefix(line, "/"):
-				fields := strings.Fields(line[1:])
-				if len(fields) == 0 {
-					fields = []string{"help"}
-				}
-				err = e.dispatch(ctx, fields[0], fields[1:])
-			default:
-				err = e.ask(ctx, line)
-			}
-			if err != nil {
-				e.fail(err)
-			}
-			fmt.Fprintln(e.out)
-			return false
+		In:    e.in,
+		Out:   e.tty,
+		Theme: console.Theme{Accent: e.st.accent, Dim: e.st.dim, Border: accentColor},
+		Title: e.st.accent.Render("H2H") + " " + e.st.dim.Render(Version+"  ·  ") + displayPath(e.root, os.Getenv("HOME"), 40) +
+			e.st.dim.Render("  ·  default harness ") + harnessName,
+		Intro:     intro,
+		Status:    e.statusLine,
+		Commands:  suggestions,
+		Arguments: e.argumentSuggestions,
+		Handle: func(ctx context.Context, ui console.UI, line string) bool {
+			// The command writes to the console, not to the terminal.
+			inConsole := *e
+			inConsole.out, inConsole.errw, inConsole.ui = ui, ui, ui
+			return inConsole.line(ctx, line)
 		},
 	})
+}
+
+// script reads lines from input that is not a terminal, such as a pipe.
+func (e *env) script() error {
+	sc := bufio.NewScanner(e.in)
+	for sc.Scan() {
+		ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
+		quit := e.line(ctx, sc.Text())
+		cancel()
+		if quit {
+			return nil
+		}
+	}
+	return sc.Err()
+}
+
+// line runs one line typed into the console and reports whether to leave.
+func (e *env) line(ctx context.Context, line string) (quit bool) {
+	line = strings.TrimSpace(line)
+	var err error
+	switch {
+	case line == "":
+		return false
+	case line == "/exit" || line == "/quit":
+		return true
+	case strings.HasPrefix(line, "/"):
+		fields := strings.Fields(line[1:])
+		if len(fields) == 0 {
+			fields = []string{"help"}
+		}
+		err = e.dispatch(ctx, fields[0], fields[1:])
+	default:
+		err = e.ask(ctx, line)
+	}
+	if err != nil {
+		e.fail(err)
+	}
+	return false
 }
 
 func (e *env) help(_ context.Context, _ []string) error {

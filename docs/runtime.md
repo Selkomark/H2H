@@ -238,7 +238,7 @@ What this does not cover:
 
 H2H is a command-line tool first. The web UI is the same tool started with a flag.
 
-Run with no arguments, `h2h` opens its console: a prompt with history and completion where each command is typed with a leading slash, such as `/ps`. The console and the shell commands call the same code. Text without a slash is a question for the default harness; see [design.md](design.md).
+Run with no arguments, `h2h` opens its console. It takes the whole screen: session states at the top, a scrolling transcript, and an input at the bottom with history and a suggestion list. Each command is typed with a leading slash, such as `/ps`. Attaching to a session or opening an editor hands the terminal over and returns to the console afterwards. Input that is not a terminal, such as a pipe, is read line by line instead. The console and the shell commands call the same code. Text without a slash is a question for the default harness; see [design.md](design.md).
 
 | Command | Does | Status |
 |---|---|---|

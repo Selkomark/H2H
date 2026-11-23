@@ -15,6 +15,7 @@ import (
 	"golang.org/x/term"
 
 	"github.com/Selkomark/H2H/internal/config"
+	"github.com/Selkomark/H2H/internal/console"
 	"github.com/Selkomark/H2H/internal/keeper"
 	"github.com/Selkomark/H2H/internal/session"
 	"github.com/Selkomark/H2H/internal/workspace"
@@ -38,15 +39,7 @@ func sessionTable(root string, infos []session.Info, st styles) string {
 	const stateCol = 2
 	var rows [][]string
 	for _, i := range infos {
-		state := string(i.State)
-		switch {
-		case i.State == session.Exited && i.Error != "":
-			state = "failed"
-		case i.State == session.Exited && i.ExitCode != nil && *i.ExitCode < 0:
-			state = "stopped" // ended by a signal
-		case i.State == session.Exited && i.ExitCode != nil:
-			state = fmt.Sprintf("exited (%d)", *i.ExitCode)
-		}
+		state := stateText(i)
 		ws, err := filepath.Rel(root, i.Workspace)
 		if err != nil {
 			ws = i.Workspace
@@ -63,6 +56,19 @@ func sessionTable(root string, infos []session.Info, st styles) string {
 			}
 			return lipgloss.NewStyle()
 		})
+}
+
+// stateText is the state of a session as shown to the user.
+func stateText(i session.Info) string {
+	switch {
+	case i.State == session.Exited && i.Error != "":
+		return "failed"
+	case i.State == session.Exited && i.ExitCode != nil && *i.ExitCode < 0:
+		return "stopped" // ended by a signal
+	case i.State == session.Exited && i.ExitCode != nil:
+		return fmt.Sprintf("exited (%d)", *i.ExitCode)
+	}
+	return string(i.State)
 }
 
 func age(d time.Duration) string {
@@ -128,7 +134,12 @@ func (e *env) attach(_ context.Context, args []string) error {
 		return errors.New("attach needs a terminal")
 	}
 	fmt.Fprintf(e.out, "Attaching to %s. Press %s to leave it running.\n", info.ID, e.st.accent.Render("Ctrl-\\"))
-	ended, err := keeper.Attach(info.Socket, e.in, e.out)
+	var ended bool
+	err = e.ui.Foreground(func() error {
+		var err error
+		ended, err = keeper.Attach(info.Socket, e.in, e.tty)
+		return err
+	})
 	if err != nil {
 		return err
 	}
@@ -216,6 +227,61 @@ func (e *env) rm(ctx context.Context, args []string) error {
 	}
 	fmt.Fprintf(e.out, "Removed %s.\n", info.ID)
 	return nil
+}
+
+// statusLine summarises the sessions in one line, for the top of the console.
+func (e *env) statusLine() string {
+	infos, err := session.List(e.root)
+	if err != nil {
+		return e.st.bad.Render(err.Error())
+	}
+	if len(infos) == 0 {
+		return e.st.dim.Render("no sessions")
+	}
+	parts := make([]string, len(infos))
+	for n, i := range infos {
+		parts[n] = e.st.state(i).Render("● ") + i.ID + " " + e.st.dim.Render(stateText(i))
+	}
+	return strings.Join(parts, "   ")
+}
+
+// argumentSuggestions offers what can follow a command in the console.
+func (e *env) argumentSuggestions(command string) []console.Suggestion {
+	var out []console.Suggestion
+	switch command {
+	case "attach", "logs", "stop", "rm":
+		infos, err := session.List(e.root)
+		if err != nil {
+			return nil
+		}
+		for _, i := range infos {
+			if (command == "attach" || command == "stop") && i.State != session.Running {
+				continue
+			}
+			if command == "rm" && i.Live() {
+				continue
+			}
+			out = append(out, console.Suggestion{Text: i.ID, Help: stateText(i)})
+		}
+	case "start":
+		cfg, err := config.Load(e.root)
+		if err != nil {
+			return nil
+		}
+		for _, name := range cfg.Names() {
+			help := cfg.Harnesses[name].Command
+			if name == cfg.DefaultHarness {
+				help += " (default)"
+			}
+			out = append(out, console.Suggestion{Text: name, Help: help})
+		}
+	case "config":
+		out = []console.Suggestion{
+			{Text: "show", Help: "Print the config"},
+			{Text: "edit", Help: "Open the config in your editor"},
+		}
+	}
+	return out
 }
 
 // pick returns the session a command names. With no name it picks the only

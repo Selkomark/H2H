@@ -79,7 +79,7 @@ func (e *env) configEdit() error {
 		}
 		if _, err := config.Parse(draft); err != nil {
 			fmt.Fprintf(e.out, "%s %v\n", e.st.bad.Render("That config is not valid:"), err)
-			if !e.confirm("Edit it again?") {
+			if !e.ui.Confirm("Edit it again?") {
 				fmt.Fprintln(e.out, "Discarded. The config is unchanged.")
 				return nil
 			}
@@ -142,7 +142,7 @@ func (e *env) configApply(current string, exists bool, next string) error {
 	} else {
 		fmt.Fprintf(e.out, "%s\n\n%s\n", e.st.title.Render("This creates "+config.FileName+". Compared with the shipped defaults:"), e.st.diff(lineDiff(current, next)))
 	}
-	if !e.confirm("Apply?") {
+	if !e.ui.Confirm("Apply?") {
 		fmt.Fprintln(e.out, "Not applied. The config is unchanged.")
 		return nil
 	}
@@ -179,8 +179,8 @@ func (e *env) editText(text string) (string, error) {
 	}
 	// Not tied to a context: Ctrl-C belongs to the editor while it runs.
 	cmd := exec.Command(argv[0], append(argv[1:], f.Name())...)
-	cmd.Stdin, cmd.Stdout, cmd.Stderr = e.in, e.out, e.errw
-	if err := cmd.Run(); err != nil {
+	cmd.Stdin, cmd.Stdout, cmd.Stderr = e.in, e.tty, e.tty
+	if err := e.ui.Foreground(cmd.Run); err != nil {
 		return "", fmt.Errorf("editor %s: %w", argv[0], err)
 	}
 	data, err := os.ReadFile(f.Name())
@@ -201,23 +201,6 @@ func editorCommand(getenv func(string) string, lookPath func(string) (string, er
 		}
 	}
 	return nil, errors.New("no editor found; set the EDITOR environment variable")
-}
-
-// confirm asks a yes-or-no question. Anything but yes is no.
-func (e *env) confirm(question string) bool {
-	fmt.Fprintf(e.out, "%s [y/N] ", question)
-	// One byte at a time, so nothing typed after the answer is swallowed.
-	var line []byte
-	b := make([]byte, 1)
-	for {
-		n, err := e.in.Read(b)
-		if n == 0 || err != nil || b[0] == '\n' {
-			break
-		}
-		line = append(line, b[0])
-	}
-	answer := strings.ToLower(strings.TrimSpace(string(line)))
-	return answer == "y" || answer == "yes"
 }
 
 // unfence returns the body of the first fenced code block in a reply, or
