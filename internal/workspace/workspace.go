@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -34,13 +35,94 @@ func Create(ctx context.Context, root, id string) (string, error) {
 	return path, nil
 }
 
-// Remove deletes the session's worktree. Git refuses when it holds changes
-// that are not committed, and that refusal is returned as is.
-func Remove(ctx context.Context, root, id string) error {
-	if _, err := git(ctx, root, "worktree", "remove", Path(root, id)); err != nil {
+// ErrNotWorktree means the workspace folder exists but git no longer
+// knows it as a worktree of the project.
+var ErrNotWorktree = errors.New("the workspace is not a git worktree of this project")
+
+// Exists reports whether the session's workspace folder is there.
+func Exists(root, id string) bool {
+	_, err := os.Stat(Path(root, id))
+	return err == nil
+}
+
+// Changes lists what in the session's workspace is not committed: modified,
+// staged and untracked paths, relative to the workspace. An empty result
+// means removing the workspace loses nothing.
+func Changes(ctx context.Context, root, id string) ([]string, error) {
+	ok, err := registered(ctx, root, id)
+	if err != nil {
+		return nil, err
+	}
+	if !ok {
+		return nil, ErrNotWorktree
+	}
+	out, err := git(ctx, Path(root, id), "status", "--porcelain")
+	if err != nil {
+		return nil, fmt.Errorf("checking workspace: %w", err)
+	}
+	var paths []string
+	for _, line := range strings.Split(strings.TrimRight(out, "\n"), "\n") {
+		// Each line is a two-letter status, a space and the path.
+		if len(line) > 3 {
+			paths = append(paths, line[3:])
+		}
+	}
+	return paths, nil
+}
+
+// Remove deletes the session's workspace. Without force it refuses a
+// workspace that holds uncommitted work, or one that is no longer a
+// worktree. With force the folder is deleted whatever it holds.
+func Remove(ctx context.Context, root, id string, force bool) error {
+	path := Path(root, id)
+	if !Exists(root, id) {
+		// Nothing to delete. Let git forget a worktree whose folder is gone.
+		_, _ = git(ctx, root, "worktree", "prune")
+		return nil
+	}
+	ok, err := registered(ctx, root, id)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		if !force {
+			return ErrNotWorktree
+		}
+		return os.RemoveAll(path)
+	}
+	args := []string{"worktree", "remove", path}
+	if force {
+		args = []string{"worktree", "remove", "--force", path}
+	}
+	if _, err := git(ctx, root, args...); err != nil {
 		return fmt.Errorf("removing workspace: %w", err)
 	}
 	return nil
+}
+
+// registered reports whether git lists the session's workspace as a
+// worktree of the project.
+func registered(ctx context.Context, root, id string) (bool, error) {
+	out, err := git(ctx, root, "worktree", "list", "--porcelain")
+	if err != nil {
+		return false, fmt.Errorf("listing worktrees: %w", err)
+	}
+	want := resolve(Path(root, id))
+	for _, line := range strings.Split(out, "\n") {
+		if path, ok := strings.CutPrefix(line, "worktree "); ok && resolve(path) == want {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+// resolve follows symbolic links, so the same folder always compares equal
+// however it was reached.
+func resolve(path string) string {
+	if real, err := filepath.EvalSymlinks(path); err == nil {
+		return real
+	}
+	return filepath.Clean(path)
 }
 
 func git(ctx context.Context, dir string, args ...string) (string, error) {

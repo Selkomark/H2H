@@ -3,6 +3,7 @@ package cli
 import (
 	"errors"
 	"slices"
+	"strings"
 	"testing"
 )
 
@@ -51,6 +52,40 @@ func TestDisplayPath(t *testing.T) {
 		if got := displayPath(tt.path, tt.home, tt.limit); got != tt.want {
 			t.Errorf("displayPath(%q, %q, %d) = %q, want %q", tt.path, tt.home, tt.limit, got, tt.want)
 		}
+	}
+}
+
+func TestChangeSummary(t *testing.T) {
+	tests := []struct {
+		name    string
+		changes []string
+		want    string
+	}{
+		{"one", []string{"a.txt"}, "The workspace of claude-1 has 1 uncommitted change:\n  a.txt\n"},
+		{"a few", []string{"a", "b/"}, "The workspace of claude-1 has 2 uncommitted changes:\n  a\n  b/\n"},
+		{
+			"more than are listed", []string{"1", "2", "3", "4", "5", "6", "7"},
+			"The workspace of claude-1 has 7 uncommitted changes:\n  1\n  2\n  3\n  4\n  5\n  and 2 more\n",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := changeSummary("claude-1", tt.changes); got != tt.want {
+				t.Errorf("changeSummary() =\n%s\nwant\n%s", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestReadLineLeavesTheRest(t *testing.T) {
+	in := strings.NewReader("/rm a\ny\nlast")
+	for _, want := range []string{"/rm a", "y", "last"} {
+		if got, ok := readLine(in); !ok || got != want {
+			t.Errorf("readLine() = %q, %v; want %q, true", got, ok, want)
+		}
+	}
+	if got, ok := readLine(in); ok {
+		t.Errorf("readLine() at the end = %q, true; want false", got)
 	}
 }
 

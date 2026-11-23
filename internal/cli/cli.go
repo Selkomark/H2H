@@ -3,7 +3,6 @@
 package cli
 
 import (
-	"bufio"
 	"context"
 	"fmt"
 	"io"
@@ -49,18 +48,27 @@ func (u shellUI) Foreground(fn func() error) error { return fn() }
 // Confirm asks a yes-or-no question. Anything but yes is no.
 func (u shellUI) Confirm(question string) bool {
 	fmt.Fprintf(u.out, "%s [y/N] ", question)
-	// One byte at a time, so nothing typed after the answer is swallowed.
+	line, _ := readLine(u.in)
+	answer := strings.ToLower(strings.TrimSpace(line))
+	return answer == "y" || answer == "yes"
+}
+
+// readLine reads one line from in, a byte at a time, so that nothing after
+// the line is taken from whoever reads next. It reports false at the end
+// of the input.
+func readLine(in io.Reader) (string, bool) {
 	var line []byte
 	b := make([]byte, 1)
 	for {
-		n, err := u.in.Read(b)
-		if n == 0 || err != nil || b[0] == '\n' {
-			break
+		n, err := in.Read(b)
+		if n == 0 || err != nil {
+			return string(line), len(line) > 0
+		}
+		if b[0] == '\n' {
+			return string(line), true
 		}
 		line = append(line, b[0])
 	}
-	answer := strings.ToLower(strings.TrimSpace(string(line)))
-	return answer == "y" || answer == "yes"
 }
 
 type command struct {
@@ -217,17 +225,20 @@ func (e *env) console() error {
 }
 
 // script reads lines from input that is not a terminal, such as a pipe.
+// A command that asks a question reads its answer from the next line.
 func (e *env) script() error {
-	sc := bufio.NewScanner(e.in)
-	for sc.Scan() {
+	for {
+		text, ok := readLine(e.in)
+		if !ok {
+			return nil
+		}
 		ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
-		quit := e.line(ctx, sc.Text())
+		quit := e.line(ctx, text)
 		cancel()
 		if quit {
 			return nil
 		}
 	}
-	return sc.Err()
 }
 
 // line runs one line typed into the console and reports whether to leave.

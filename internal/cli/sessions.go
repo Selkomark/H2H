@@ -224,16 +224,63 @@ func (e *env) rm(ctx context.Context, args []string) error {
 	if info.State == session.Running || info.State == session.Starting {
 		return fmt.Errorf("session %s is %s; stop it first", info.ID, info.State)
 	}
-	if _, err := os.Stat(workspace.Path(e.root, info.ID)); err == nil {
-		if err := workspace.Remove(ctx, e.root, info.ID); err != nil {
-			return fmt.Errorf("%w\nThe session was kept. Commit or discard the changes in its workspace, then remove it again", err)
+	// A workspace with uncommitted work is deleted only if the user says so.
+	force := false
+	if workspace.Exists(e.root, info.ID) {
+		changes, err := workspace.Changes(ctx, e.root, info.ID)
+		question := ""
+		switch {
+		case errors.Is(err, workspace.ErrNotWorktree):
+			question = fmt.Sprintf("The workspace of %s is no longer a git worktree. Delete the folder and everything in it?", info.ID)
+		case err != nil:
+			return err
+		case len(changes) > 0:
+			fmt.Fprint(e.out, changeSummary(info.ID, changes))
+			question = fmt.Sprintf("%s has %s that will be lost. Delete it anyway?", info.ID, plural(len(changes), "uncommitted change"))
 		}
+		if question != "" {
+			if !e.ui.Confirm(question) {
+				fmt.Fprintf(e.out, "Kept %s and its workspace.\n", info.ID)
+				return nil
+			}
+			force = true
+		}
+	}
+	if err := workspace.Remove(ctx, e.root, info.ID, force); err != nil {
+		return fmt.Errorf("%w\nThe session was kept", err)
 	}
 	if err := session.Remove(e.root, info.ID); err != nil {
 		return err
 	}
 	fmt.Fprintf(e.out, "Removed %s.\n", info.ID)
 	return nil
+}
+
+// maxListedChanges is how many uncommitted paths are named before the rest
+// are only counted.
+const maxListedChanges = 5
+
+// changeSummary tells the user what in a session's workspace is not
+// committed.
+func changeSummary(id string, changes []string) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "The workspace of %s has %s:\n", id, plural(len(changes), "uncommitted change"))
+	for n, path := range changes {
+		if n == maxListedChanges {
+			fmt.Fprintf(&b, "  and %d more\n", len(changes)-n)
+			break
+		}
+		fmt.Fprintf(&b, "  %s\n", path)
+	}
+	return b.String()
+}
+
+// plural returns a count with its noun, such as "1 change" or "3 changes".
+func plural(n int, noun string) string {
+	if n == 1 {
+		return fmt.Sprintf("1 %s", noun)
+	}
+	return fmt.Sprintf("%d %ss", n, noun)
 }
 
 // sessionsView is the content of the console's Sessions tab.
