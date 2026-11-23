@@ -110,6 +110,16 @@ It also starts sessions, serves the CLI and web UI, and recovers running session
 
 Each harness runs in its own session under a small keeper process that holds its terminal and records its state. Details are in [runtime.md](runtime.md).
 
+### Console
+
+`h2h` run with no arguments opens a console: a prompt where the user types `/commands` to manage sessions and config, or plain text. It looks like a harness and is not one. It is the operations centre for the team, and every command in it is also available from the shell.
+
+Plain text typed into the console is answered by the default harness in a single read-only run, with the session list and the commands as context. H2H holds no model login of its own, so what answers is whatever harness the user has chosen as default.
+
+### Default harness
+
+One harness in the pool is marked as the default. It starts when the user names no harness, and it answers the console. H2H ships with Claude Code as the default. The user can change it in the config, which matters where a company permits only one product.
+
 ### Reporting tool
 
 A tool H2H gives every harness, as an `h2h` command or an MCP server. The harness calls it to fetch its tickets, attach proof, or say it is blocked. The session's state (working, waiting, idle) comes from the harness's own hooks, which do not depend on the model remembering to report. The terminal is never parsed.

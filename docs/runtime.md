@@ -238,13 +238,27 @@ What this does not cover:
 
 H2H is a command-line tool first. The web UI is the same tool started with a flag.
 
-| Command (names not final) | Does |
-|---|---|
-| `h2h` | Starts or rejoins a team |
-| `h2h ps` | Lists active sessions with harness, domain, ticket and state |
-| `h2h logs -f <session>` | Follows one session's log |
-| `h2h attach <session>` | Opens the session's terminal |
-| `h2h serve --port <n>` | Serves the web UI, including a terminal in the browser for each session |
+Run with no arguments, `h2h` opens its console: a prompt with history and completion where each command is typed with a leading slash, such as `/ps`. The console and the shell commands call the same code. Text without a slash is a question for the default harness; see [design.md](design.md).
+
+| Command | Does | Status |
+|---|---|---|
+| `h2h` | Opens the console | Built |
+| `h2h start [harness]` | Starts a session of a harness, the default one if none is named | Built |
+| `h2h ps` | Lists sessions with harness, state, age and workspace. Domain and ticket come later | Built |
+| `h2h logs [-f] [session]` | Prints or follows one session's terminal log | Built |
+| `h2h attach [session]` | Opens the session's terminal. Ctrl-\ leaves it running | Built |
+| `h2h stop [session]`, `h2h rm [session]` | Stops a session; removes a stopped session and its workspace | Built |
+| `h2h config [show \| edit \| <description>]` | Shows, edits or describes a change to the config; see [configuration.md](configuration.md) | Built |
+| `h2h serve --port <n>` | Serves the web UI, including a terminal in the browser for each session | Later |
+
+What stage 1 does not do yet:
+
+- **State is running or exited only.** Working, waiting and idle come from hooks, in stage 3.
+- **Watch and take over are not built.** Following the log is the read-only view for now.
+- **One attached client per session.** A second attach is refused, which is how "one driver at a time" is enforced so far.
+- **Rejoin is implicit.** Sessions are read from the state directory by every command, so there is no rejoin question on start yet.
+- **Sockets live outside the state directory,** in a private per-user directory under `/tmp`, because a Unix socket path is limited to about 100 bytes.
+- **A harness sees a reduced environment:** basic variables plus those named for it in the config, not the user's whole shell environment.
 
 The web UI offers what the CLI does, plus the ticket board and proof viewer described in [configuration.md](configuration.md). A terminal in the browser is a remote shell with the harness's permissions; see [authentication.md](authentication.md).
 

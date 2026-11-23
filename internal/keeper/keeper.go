@@ -1,0 +1,247 @@
+// Package keeper holds one harness in a pseudo-terminal.
+//
+// A keeper is the h2h binary started in an internal mode, detached from
+// whatever launched it, so the harness survives the console exiting. It does
+// three things and nothing else: hold the terminal, write the session's
+// state and log, and let one client at a time attach.
+package keeper
+
+import (
+	"encoding/binary"
+	"errors"
+	"fmt"
+	"io"
+	"net"
+	"os"
+	"os/exec"
+	"os/signal"
+	"sync"
+	"syscall"
+	"time"
+
+	"github.com/creack/pty"
+
+	"github.com/Selkomark/H2H/internal/config"
+	"github.com/Selkomark/H2H/internal/harness"
+	"github.com/Selkomark/H2H/internal/session"
+)
+
+// Frames a client sends to the keeper: one type byte, a two-byte big-endian
+// length, then the payload. The keeper answers with raw terminal output.
+const (
+	frameInput  = 'i' // payload: bytes for the harness's terminal
+	frameResize = 'r' // payload: rows and columns, two bytes each
+)
+
+const (
+	defaultRows, defaultCols = 40, 120
+	stopGrace                = 5 * time.Second
+	clientWriteTimeout       = 2 * time.Second
+)
+
+type keeper struct {
+	ptmx *os.File
+
+	mu     sync.Mutex
+	client net.Conn
+}
+
+// Run starts the harness of an existing session record and blocks until the
+// harness ends. It is the whole life of a keeper process.
+func Run(root, id string) error {
+	info, err := session.Load(root, id)
+	if err != nil {
+		return err
+	}
+	fail := func(err error) error {
+		info.State, info.Error, info.Ended = session.Exited, err.Error(), time.Now()
+		if saveErr := session.Save(root, info); saveErr != nil {
+			return errors.Join(err, saveErr)
+		}
+		return err
+	}
+
+	cfg, err := config.Load(root)
+	if err != nil {
+		return fail(err)
+	}
+	_, h, err := cfg.Lookup(info.Harness)
+	if err != nil {
+		return fail(err)
+	}
+
+	logf, err := os.OpenFile(session.LogPath(root, id), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
+	if err != nil {
+		return fail(err)
+	}
+	defer logf.Close()
+
+	sock, err := session.SocketPath(root, id)
+	if err != nil {
+		return fail(err)
+	}
+	_ = os.Remove(sock) // left behind by a keeper that died
+	ln, err := net.Listen("unix", sock)
+	if err != nil {
+		return fail(err)
+	}
+	defer os.Remove(sock)
+	defer ln.Close()
+	if err := os.Chmod(sock, 0o600); err != nil {
+		return fail(err)
+	}
+
+	cmd := exec.Command(h.Command, h.Args...)
+	cmd.Dir = info.Workspace
+	cmd.Env = harness.Env(h, os.Environ(), "H2H_SESSION="+id)
+	ptmx, err := pty.StartWithSize(cmd, &pty.Winsize{Rows: defaultRows, Cols: defaultCols})
+	if err != nil {
+		return fail(fmt.Errorf("starting %s: %w", h.Command, err))
+	}
+	defer ptmx.Close()
+
+	info.State, info.Socket = session.Running, sock
+	info.KeeperPID, info.HarnessPID = os.Getpid(), cmd.Process.Pid
+	if err := session.Save(root, info); err != nil {
+		stop(cmd.Process.Pid)
+		return err
+	}
+
+	k := &keeper{ptmx: ptmx}
+	go k.accept(ln)
+	exited := make(chan struct{})
+	go forwardStop(cmd.Process.Pid, exited)
+
+	k.pump(logf) // returns when the harness closes its terminal
+	waitErr := cmd.Wait()
+	close(exited)
+	k.drop(nil)
+
+	code := cmd.ProcessState.ExitCode()
+	info.State, info.ExitCode, info.Ended = session.Exited, &code, time.Now()
+	var exitErr *exec.ExitError
+	if waitErr != nil && !errors.As(waitErr, &exitErr) {
+		info.Error = waitErr.Error()
+	}
+	return session.Save(root, info)
+}
+
+// pump copies the harness's terminal output to the log and to the attached
+// client, until the terminal closes.
+func (k *keeper) pump(logf io.Writer) {
+	buf := make([]byte, 32*1024)
+	for {
+		n, err := k.ptmx.Read(buf)
+		if n > 0 {
+			_, _ = logf.Write(buf[:n])
+			k.mu.Lock()
+			c := k.client
+			k.mu.Unlock()
+			if c != nil {
+				// A stalled client must never block the harness.
+				_ = c.SetWriteDeadline(time.Now().Add(clientWriteTimeout))
+				if _, werr := c.Write(buf[:n]); werr != nil {
+					k.drop(c)
+				}
+			}
+		}
+		if err != nil {
+			return
+		}
+	}
+}
+
+// accept admits one client at a time: a session has one driver.
+func (k *keeper) accept(ln net.Listener) {
+	for {
+		conn, err := ln.Accept()
+		if err != nil {
+			return
+		}
+		k.mu.Lock()
+		busy := k.client != nil
+		if !busy {
+			k.client = conn
+		}
+		k.mu.Unlock()
+		if busy {
+			_, _ = conn.Write([]byte("h2h: this session is already attached elsewhere\r\n"))
+			conn.Close()
+			continue
+		}
+		go k.serve(conn)
+	}
+}
+
+// serve applies the frames of one attached client.
+func (k *keeper) serve(conn net.Conn) {
+	defer k.drop(conn)
+	var head [3]byte
+	for {
+		if _, err := io.ReadFull(conn, head[:]); err != nil {
+			return
+		}
+		payload := make([]byte, binary.BigEndian.Uint16(head[1:]))
+		if _, err := io.ReadFull(conn, payload); err != nil {
+			return
+		}
+		switch head[0] {
+		case frameInput:
+			if _, err := k.ptmx.Write(payload); err != nil {
+				return
+			}
+		case frameResize:
+			if len(payload) != 4 {
+				return
+			}
+			rows, cols := binary.BigEndian.Uint16(payload), binary.BigEndian.Uint16(payload[2:])
+			if rows == 0 || cols == 0 {
+				continue
+			}
+			// A harness redraws only when its size changes. Passing through
+			// a different size first makes a newly attached client get a
+			// full screen even when its terminal matches the last one.
+			_ = pty.Setsize(k.ptmx, &pty.Winsize{Rows: rows, Cols: cols - 1})
+			_ = pty.Setsize(k.ptmx, &pty.Winsize{Rows: rows, Cols: cols})
+		default:
+			return
+		}
+	}
+}
+
+// drop closes the attached client. With a non-nil conn it only acts if conn
+// is still the attached one.
+func (k *keeper) drop(conn net.Conn) {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	if k.client == nil || (conn != nil && k.client != conn) {
+		if conn != nil {
+			conn.Close()
+		}
+		return
+	}
+	k.client.Close()
+	k.client = nil
+}
+
+// forwardStop ends the harness when the keeper is asked to stop. It gives
+// up once the harness has exited, so a late signal never reaches a process
+// that has since taken over the harness's ID.
+func forwardStop(pid int, exited <-chan struct{}) {
+	signal.Ignore(syscall.SIGHUP)
+	sig := make(chan os.Signal, 1)
+	signal.Notify(sig, syscall.SIGTERM, syscall.SIGINT)
+	defer signal.Stop(sig)
+	select {
+	case <-sig:
+		stop(pid)
+	case <-exited:
+	}
+}
+
+// stop asks the harness and everything it started to end, and insists after
+// a grace period. The harness leads its own process group.
+func stop(pid int) {
+	_ = syscall.Kill(-pid, syscall.SIGTERM)
+	time.AfterFunc(stopGrace, func() { _ = syscall.Kill(-pid, syscall.SIGKILL) })
+}

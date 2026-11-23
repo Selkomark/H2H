@@ -6,6 +6,39 @@ How a team is defined and changed.
 
 The team is declared as code, in the way Terraform declares infrastructure. The code is the single source of truth. The CLI and the UI are views onto it and both go through one API over one schema. If the UI kept its own settings, the two would drift and nobody would know which was in force.
 
+## The file
+
+The config is one TOML file, `h2h.toml`, at the project root, meant to be committed. A project without one runs on the defaults H2H ships with. So far it declares the harness pool and the default harness:
+
+```toml
+default_harness = "claude"
+
+[harness.claude]
+command = "claude"
+args = []
+ask_args = ["--permission-mode", "plan", "-p"]
+pass_env = ["ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN"]
+```
+
+| Setting | Meaning |
+|---|---|
+| `default_harness` | The harness used when none is named, and the one that answers the console |
+| `command`, `args` | How to start an interactive session |
+| `ask_args` | How to get one non-interactive answer. The prompt is appended. A read-only mode is used where the harness has one |
+| `pass_env` | Environment variables the harness may see beyond the basic set. Names only; values stay in the environment |
+
+Unknown settings are rejected, so a typing mistake is reported instead of ignored.
+
+### Changing it
+
+| Way | What happens |
+|---|---|
+| `/config edit` | Opens a copy in the user's editor (`$VISUAL`, `$EDITOR`, then nano or vi) |
+| `/config <description>` | The default harness rewrites the file to match a description in words |
+| Editing `h2h.toml` directly | Read the next time a command runs |
+
+The first two go through plan and apply: the result is validated, the difference is shown, and nothing is written until the user confirms. A change applies to sessions started afterwards.
+
 ## Why config as code
 
 - **Reviewable.** The rules that limit a harness live in version control, with a history of who changed what and why.
@@ -56,4 +89,4 @@ The UI matters most for the human approval side. It earns its place there before
 2. **CLI.** Small to build and scriptable.
 3. **UI.** The largest effort.
 
-The config schema itself is not designed yet. See [roadmap.md](roadmap.md).
+Beyond the harness pool, the config schema is not designed yet. See [roadmap.md](roadmap.md).

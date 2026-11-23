@@ -31,7 +31,7 @@ A small core with adapters at the edges, built from plain Go packages. There is 
 Imports point inward, and never sideways between adapters:
 
 ```
-cmd/h2h  ->  cli  ->  orchestrator, keeper, web
+cmd/h2h  ->  cli  ->  console, orchestrator, keeper, web
 orchestrator  ->  ticket, policy, session, config (and interfaces it declares)
 adapters (harness/*, store, workspace)  ->  core types only
 ticket, policy  ->  standard library only
@@ -39,7 +39,7 @@ ticket, policy  ->  standard library only
 
 - A core package never imports an adapter.
 - One harness adapter never imports another. Shared behaviour goes in `harness`.
-- Product names (`claude`, `copilot`, `codex`) appear only inside `internal/harness/<product>`. Code elsewhere that branches on a product is a bug: the difference belongs in the adapter or in config (see `docs/runtime.md`, "One behaviour for every harness").
+- Product names (`claude`, `copilot`, `codex`) appear only in the shipped config (`internal/config/default.toml`) and inside `internal/harness/<product>`. Prefer config: a product gets a package only for behaviour that data cannot express. Code elsewhere that branches on a product is a bug: the difference belongs in the adapter or in config (see `docs/runtime.md`, "One behaviour for every harness").
 
 ## 3. Layout
 
@@ -52,15 +52,16 @@ H2H/
 │   └── h2h/
 │       └── main.go         entry point only; calls internal/cli
 ├── internal/
-│   ├── cli/                commands and flags: ps, logs, attach, serve, internal keeper mode
+│   ├── cli/                the commands, shared by the shell and the console, and their styling
+│   ├── console/            the interactive prompt: line editing, history, completion
 │   ├── orchestrator/       applies the rules to ticket and session events
 │   ├── ticket/             ticket type, states and transitions (pure)
 │   ├── policy/             permission and approval decisions (pure)
 │   ├── session/            session state model and the state directory
 │   ├── keeper/             holds one harness's pseudo-terminal, writes state, serves attach
 │   ├── workspace/          git worktrees per session
-│   ├── harness/            the adapter contract and its conformance test
-│   │   ├── claude/
+│   ├── harness/            starting a harness from its config entry; later the adapter contract
+│   │   ├── claude/         added only when a product needs code, not just config
 │   │   ├── copilot/
 │   │   └── codex/
 │   ├── report/             the reporting tool a harness calls
@@ -74,6 +75,7 @@ Rules:
 
 - **Everything is `internal/`.** H2H ships a binary, not a library, so nothing is importable from outside until there is a deliberate reason to publish an API.
 - **`cmd/h2h/` instead of a root `main.go`,** so the installed binary is named `h2h` and not after the module path.
+- **One command, two views.** A command is one function in `cli`. `h2h ps` and `/ps` both call it; the console only reads lines and never implements behaviour.
 - **This tree is a map, not a scaffold.** A package is created in the roadmap stage that first needs it (`docs/roadmap.md`). Do not add empty packages, placeholder files or `doc.go` stubs ahead of use.
 - **Tests sit beside the code** as `*_test.go`. Fixtures go in a `testdata/` directory in the same package.
 - **Split by file before splitting by package.** A new package needs its own responsibility and a clear import direction. Avoid packages with one small file, and avoid nesting deeper than `internal/<package>/<subpackage>`.

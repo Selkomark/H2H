@@ -19,7 +19,7 @@ Each stage gives a baseline for judging the next.
 
 | Stage | What is built | What it tells us |
 |---|---|---|
-| 1. One session | The `h2h` binary, a keeper running one harness in a terminal with its own workspace, plus list, logs and attach | Whether a harness can be supervised, watched and entered |
+| 1. Console and sessions (built) | The `h2h` binary and its console with slash commands; a keeper running each harness in a terminal with its own workspace; start, list, logs, attach, stop and remove; a config file with a default harness, edited by hand or described in words | Whether a harness can be supervised, watched and entered, and whether the console is a comfortable place to operate from |
 | 2. Crash recovery | State on disk and rejoin on restart | Whether sessions survive H2H stopping, and what is lost |
 | 3. Hooks and reporting tool | A harness adapter that configures hooks for state, plus the tool a harness calls to fetch work and attach proof, tried on a task that needs a harness (change code in a repo and run the tests) | Whether state from hooks and content from reports hold up on real work. The spikes showed both work on trivial tasks |
 | 3a. Permission policy | The policy hook, the request queue and escalation to the user, including a wait longer than a hook's time limit | Whether a session can run unattended without ever showing a prompt |
@@ -76,7 +76,7 @@ The useful question is "what breaks at the boundary", more than "is the output b
 - **Ticket similarity.** Whether domain, phase and a type label are enough to compare tickets for suggestions.
 - **Small agents.** Which framework, if any, and which model.
 - **Estimation budget.** How much an owner may spend to estimate a ticket, and the size below which estimation is skipped.
-- **Config schema.** Not designed.
+- **Config schema.** Only the harness pool and the default harness exist so far. Domains, permissions, budgets and approval rules are not designed.
 - **Test environment.** Who starts the app and the browser for UI testing: H2H or the tester's session.
 - **Windows.** Out of scope at first. Pseudo-terminals and local sockets differ there.
 - **Choosing a harness per domain.** The working assumption is that tooling and integrations matter more than model preference. Untested.

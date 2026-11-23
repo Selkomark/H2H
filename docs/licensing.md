@@ -35,11 +35,24 @@ Further rules:
 - **Maintained and widely used.** A dependency should have an active maintainer and real adoption, so a licence change or abandonment is less likely to strand H2H.
 - **Recorded.** Each dependency is listed with its version, licence and the reason it is needed.
 
+## Current dependencies
+
+Direct dependencies, checked by hand on 2026-11-23 from the licence file in each module:
+
+| Dependency | Version | Licence | Needed for |
+|---|---|---|---|
+| `github.com/creack/pty` | v1.1.24 | MIT | Pseudo-terminals for harness sessions |
+| `golang.org/x/term` | v0.48.0 | BSD 3-Clause | Raw terminal mode and the console's line editing |
+| `github.com/BurntSushi/toml` | v1.6.0 | MIT | Reading the config file |
+| `github.com/charmbracelet/lipgloss` | v1.1.0 | MIT | Colour and layout of console output |
+
+Everything they pull into the binary is MIT or BSD 3-Clause as well. The full list is in `go.mod`.
+
 ## Enforcement
 
 A rule that is not checked drifts. From the first build:
 
-- **A licence check in the build.** It fails when a dependency, direct or transitive, has a licence outside the allowed list.
+- **A licence check in the build.** Not set up yet; the check above was manual. It fails when a dependency, direct or transitive, has a licence outside the allowed list.
 - **A notices file in every release,** listing each dependency with its licence text, as the permissive licences require.
 - **A software bill of materials** per release, so a company's audit can start from a list instead of the source.
 - **Review on change.** Adding or upgrading a dependency shows its licence in the change, because a new version can change licence.

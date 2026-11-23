@@ -1,6 +1,6 @@
 # H2H: Harness-to-Harness Orchestration
 
-**Status: design, validated by three spikes. Nothing is built yet.**
+**Status: stage 1 of the [roadmap](docs/roadmap.md) is built: the `h2h` console, supervised sessions, and configuration. The rest is design, validated by three spikes.**
 
 H2H lets complete agent harnesses (Claude Code, Copilot CLI, Codex CLI and others) work as a team. Each harness owns a domain of responsibility, reports its status, and has its work checked and approved, instead of acting as a worker that answers one task and forgets.
 
@@ -20,7 +20,8 @@ The expected cost is coordination overhead. Similar tools exist and are known to
 
 ## Intended shape
 
-- **Tool:** a single `h2h` binary, written in Go. It is a CLI first, and `h2h serve --port <n>` adds a web UI.
+- **Tool:** a single `h2h` binary, written in Go. Run with no arguments it opens a console, an operations centre where the user types `/commands` or plain questions. Every command also works from the shell, and `h2h serve --port <n>` adds a web UI.
+- **Default harness:** one harness in the pool is the default. It runs new sessions when none is named and answers what the user types into the console. H2H ships with Claude Code as the default, and the user can change it, for example where a company allows only Copilot or Codex.
 - **Sessions:** each harness runs in its own terminal session and workspace under a small keeper process, so sessions survive a crash of H2H and can be rejoined.
 - **Visibility:** the user can list active harnesses, follow their logs, and jump into any session's terminal.
 - **Reporting:** a session's state comes from the harness's own hooks, and harnesses report proof through a tool H2H provides.
@@ -31,6 +32,29 @@ The expected cost is coordination overhead. Similar tools exist and are known to
 - **Planning:** kanban by default. An optional project manager adds estimation, sprints bounded by budget, and a retro.
 - **Cost:** coordination is done by code first, small agents second and a harness last.
 - **Configuration:** declared as code, with the CLI and the UI as views onto it.
+
+## Build and run
+
+Requires Go 1.27 or later, git, and at least one harness installed and logged in.
+
+```
+go build -o bin/h2h ./cmd/h2h
+cd <a git repository>
+h2h
+```
+
+| In the console | From the shell | Does |
+|---|---|---|
+| `/start [harness]` | `h2h start [harness]` | Starts a session in its own worktree under `.h2h/workspaces/` |
+| `/ps` | `h2h ps` | Lists sessions |
+| `/attach [session]` | `h2h attach [session]` | Opens the session's terminal. Ctrl-\ leaves it running |
+| `/logs [-f] [session]` | `h2h logs [-f] [session]` | Prints or follows the session's terminal log |
+| `/stop [session]` | `h2h stop [session]` | Stops a session |
+| `/rm [session]` | `h2h rm [session]` | Removes a stopped session and its workspace |
+| `/config` | `h2h config` | Shows the config. `/config edit` opens it in your editor, and `/config <description>` has the default harness propose the change |
+| plain text | | Asks the default harness, which sees the session list and the commands |
+
+Sessions keep running when the console exits. The config is `h2h.toml` at the project root; see [docs/configuration.md](docs/configuration.md).
 
 ## What has been validated
 

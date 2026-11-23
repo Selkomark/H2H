@@ -1,0 +1,39 @@
+# H2H configuration.
+#
+# Edit this file with "/config edit" inside h2h, or describe a change in
+# words with "/config <what you want>". Either way H2H validates the result
+# and shows the difference before anything is applied.
+
+# The harness H2H uses when none is named: for new sessions, and to answer
+# text typed into the h2h console. It must be one of the harnesses below.
+default_harness = "claude"
+
+# One table per harness H2H may start.
+#
+#   command   the program to run
+#   args      arguments for an interactive session
+#   ask_args  arguments for a single non-interactive answer; the prompt is
+#             appended as the last argument. Where the harness has a
+#             read-only mode it is used here, because answering a question
+#             should not change the project
+#   pass_env  extra environment variables the harness may see. A harness
+#             otherwise gets only a basic environment (HOME, PATH, TERM,
+#             locale, proxy settings), never your whole shell environment.
+
+[harness.claude]
+command = "claude"
+args = []
+ask_args = ["--permission-mode", "plan", "-p"]
+pass_env = ["ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN"]
+
+[harness.copilot]
+command = "copilot"
+args = []
+ask_args = ["-p"]
+pass_env = ["COPILOT_GITHUB_TOKEN", "GH_TOKEN", "GITHUB_TOKEN"]
+
+[harness.codex]
+command = "codex"
+args = []
+ask_args = ["exec", "--sandbox", "read-only"]
+pass_env = ["OPENAI_API_KEY"]

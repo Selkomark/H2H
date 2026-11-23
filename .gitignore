@@ -1,0 +1,6 @@
+# Build output
+/bin/
+/h2h
+
+# H2H runtime state: sessions, logs and workspaces
+/.h2h/
