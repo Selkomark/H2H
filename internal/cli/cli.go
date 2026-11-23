@@ -81,7 +81,7 @@ type command struct {
 func commands() []command {
 	return []command{
 		{"ps", "", "List sessions", (*env).ps},
-		{"start", "[harness]", "Start a session; the default harness if none is named", (*env).start},
+		{"start", "[harness | domain]", "Start a session; the default harness if none is named", (*env).start},
 		{"attach", "[session]", "Open a session's terminal; leave it with Ctrl-\\", (*env).attach},
 		{"logs", "[-f] [session]", "Print a session's terminal log; -f follows it", (*env).logs},
 		{"stop", "[session]", "Stop a running session", (*env).stop},

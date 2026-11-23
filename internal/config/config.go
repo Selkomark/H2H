@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 
@@ -33,6 +34,7 @@ var (
 type Config struct {
 	DefaultHarness string             `toml:"default_harness"`
 	Harnesses      map[string]Harness `toml:"harness"`
+	Domains        map[string]Domain  `toml:"domain"`
 }
 
 // Harness says how to start one harness product.
@@ -41,6 +43,28 @@ type Harness struct {
 	Args    []string `toml:"args"`
 	AskArgs []string `toml:"ask_args"`
 	PassEnv []string `toml:"pass_env"`
+	// ContextArgs are the arguments that give the harness extra
+	// instructions at the start of a session; the instructions follow as
+	// the next argument. Without them a session started for a domain is
+	// not told its role.
+	ContextArgs []string `toml:"context_args"`
+}
+
+// Domain is an area of responsibility, owned by one harness. Its
+// sub-agents are the specialists the harness is asked to use inside it.
+// H2H passes them to the harness as instructions and cannot enforce them.
+type Domain struct {
+	Harness   string     `toml:"harness"`
+	Does      string     `toml:"does"`
+	Paths     []string   `toml:"paths"`
+	DependsOn []string   `toml:"depends_on"`
+	Subagents []Subagent `toml:"subagent"`
+}
+
+// Subagent is one specialist role inside a domain.
+type Subagent struct {
+	Role string `toml:"role"`
+	Does string `toml:"does"`
 }
 
 // Template returns the text of the config H2H ships with.
@@ -99,6 +123,27 @@ func (c Config) Lookup(name string) (string, Harness, error) {
 	return name, h, nil
 }
 
+// DomainNames returns the configured domain names in order.
+func (c Config) DomainNames() []string {
+	names := make([]string, 0, len(c.Domains))
+	for n := range c.Domains {
+		names = append(names, n)
+	}
+	sort.Strings(names)
+	return names
+}
+
+// Dependents returns the domains that depend on name, in order.
+func (c Config) Dependents(name string) []string {
+	var out []string
+	for _, n := range c.DomainNames() {
+		if slices.Contains(c.Domains[n].DependsOn, name) {
+			out = append(out, n)
+		}
+	}
+	return out
+}
+
 // Names returns the configured harness names in order.
 func (c Config) Names() []string {
 	names := make([]string, 0, len(c.Harnesses))
@@ -132,6 +177,85 @@ func (c Config) validate() error {
 	}
 	if _, ok := c.Harnesses[c.DefaultHarness]; !ok {
 		return fmt.Errorf("default_harness %q is not a configured harness (configured: %s)", c.DefaultHarness, strings.Join(c.Names(), ", "))
+	}
+	return c.validateDomains()
+}
+
+func (c Config) validateDomains() error {
+	for _, name := range c.DomainNames() {
+		d := c.Domains[name]
+		if !nameRE.MatchString(name) {
+			return fmt.Errorf("domain name %q: use lower-case letters, digits and hyphens", name)
+		}
+		if _, ok := c.Harnesses[name]; ok {
+			return fmt.Errorf("domain %q has the same name as a harness; \"start %s\" would be ambiguous", name, name)
+		}
+		if d.Harness == "" {
+			return fmt.Errorf("domain %q has no harness", name)
+		}
+		if _, ok := c.Harnesses[d.Harness]; !ok {
+			return fmt.Errorf("domain %q: harness %q is not configured (configured: %s)", name, d.Harness, strings.Join(c.Names(), ", "))
+		}
+		for _, dep := range d.DependsOn {
+			if dep == name {
+				return fmt.Errorf("domain %q depends on itself", name)
+			}
+			if _, ok := c.Domains[dep]; !ok {
+				return fmt.Errorf("domain %q depends on %q, which is not a domain", name, dep)
+			}
+		}
+		roles := map[string]bool{}
+		for _, s := range d.Subagents {
+			if strings.TrimSpace(s.Role) == "" {
+				return fmt.Errorf("domain %q has a sub-agent with no role", name)
+			}
+			if roles[s.Role] {
+				return fmt.Errorf("domain %q has the sub-agent role %q twice", name, s.Role)
+			}
+			roles[s.Role] = true
+		}
+	}
+	if cycle := c.dependencyCycle(); cycle != nil {
+		return fmt.Errorf("domains depend on each other in a circle: %s", strings.Join(cycle, " -> "))
+	}
+	return nil
+}
+
+// dependencyCycle returns a circle of depends_on links, or nil when there
+// is none. Work could never start in a domain on such a circle.
+func (c Config) dependencyCycle() []string {
+	const (
+		unseen = iota
+		open
+		done
+	)
+	mark := map[string]int{}
+	var path []string
+	var visit func(string) []string
+	visit = func(n string) []string {
+		switch mark[n] {
+		case open:
+			i := slices.Index(path, n)
+			return append(slices.Clone(path[i:]), n)
+		case done:
+			return nil
+		}
+		mark[n] = open
+		path = append(path, n)
+		deps := slices.Sorted(slices.Values(c.Domains[n].DependsOn))
+		for _, d := range deps {
+			if cycle := visit(d); cycle != nil {
+				return cycle
+			}
+		}
+		path = path[:len(path)-1]
+		mark[n] = done
+		return nil
+	}
+	for _, n := range c.DomainNames() {
+		if cycle := visit(n); cycle != nil {
+			return cycle
+		}
 	}
 	return nil
 }

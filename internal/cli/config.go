@@ -247,6 +247,9 @@ func (e *env) ask(ctx context.Context, text string) error {
 		state = sessionTable(e.root, infos, plainStyles())
 	}
 	wiring := configMap(e.root, cfg, infos, plainStyles())
+	if roles := cfg.RolesXML(""); roles != "" {
+		wiring += "\nThe domains in detail:\n" + roles
+	}
 	var help strings.Builder
 	helper := *e
 	helper.out, helper.st = &help, plainStyles()

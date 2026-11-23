@@ -90,7 +90,7 @@ func age(d time.Duration) string {
 
 func (e *env) start(ctx context.Context, args []string) error {
 	if len(args) > 1 {
-		return errors.New("usage: start [harness]")
+		return errors.New("usage: start [harness | domain]")
 	}
 	cfg, err := config.Load(e.root)
 	if err != nil {
@@ -100,18 +100,32 @@ func (e *env) start(ctx context.Context, args []string) error {
 	if len(args) == 1 {
 		want = args[0]
 	}
+	// A domain starts its own harness, and the session is named after the
+	// domain so the user can tell who owns it.
+	idBase, domain := "", ""
+	if d, ok := cfg.Domains[want]; ok {
+		idBase, domain, want = want, want, d.Harness
+	}
 	name, h, err := cfg.Lookup(want)
+	if err != nil && len(cfg.Domains) > 0 {
+		return fmt.Errorf("no harness or domain named %q (harnesses: %s; domains: %s)", want,
+			strings.Join(cfg.Names(), ", "), strings.Join(cfg.DomainNames(), ", "))
+	}
 	if err != nil {
 		return err
+	}
+	if idBase == "" {
+		idBase = name
 	}
 	if _, err := exec.LookPath(h.Command); err != nil {
 		return fmt.Errorf("harness %s: the program %q is not installed or not on PATH", name, h.Command)
 	}
 
-	info, err := session.Create(e.root, name)
+	info, err := session.Create(e.root, idBase)
 	if err != nil {
 		return err
 	}
+	info.Harness, info.Domain = name, domain
 	info.Workspace, err = workspace.Create(ctx, e.root, info.ID)
 	if err == nil {
 		err = session.Save(e.root, info)
@@ -122,6 +136,9 @@ func (e *env) start(ctx context.Context, args []string) error {
 	}
 	if err := keeper.Spawn(e.root, info.ID); err != nil {
 		return fmt.Errorf("session %s failed to start: %w", info.ID, err)
+	}
+	if domain != "" && len(h.ContextArgs) == 0 {
+		fmt.Fprintln(e.out, e.st.warn.Render("Note:")+" harness "+name+" has no context_args in the config, so the session was not told its role in "+domain+".")
 	}
 	fmt.Fprintf(e.out, "%s %s. Open it with: %s\n", e.st.good.Render("Started"), info.ID, e.st.accent.Render("attach "+info.ID))
 	return nil
@@ -345,6 +362,9 @@ func (e *env) argumentSuggestions(command string) []console.Suggestion {
 				help += " (default)"
 			}
 			out = append(out, console.Suggestion{Text: name, Help: help})
+		}
+		for _, name := range cfg.DomainNames() {
+			out = append(out, console.Suggestion{Text: name, Help: "domain, on " + cfg.Domains[name].Harness})
 		}
 	case "config":
 		out = []console.Suggestion{

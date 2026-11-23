@@ -45,15 +45,15 @@ h2h
 
 | In the console | From the shell | Does |
 |---|---|---|
-| `/start [harness]` | `h2h start [harness]` | Starts a session in its own worktree under `.h2h/workspaces/` |
+| `/start [harness \| domain]` | `h2h start [harness \| domain]` | Starts a session in its own worktree under `.h2h/workspaces/`. Naming a domain starts its owner and passes its role as XML |
 | `/ps` | `h2h ps` | Lists sessions. In the console it opens the Sessions tab, which updates live: arrows select, Enter attaches, `s` stops, `d` deletes |
 | `/attach [session]` | `h2h attach [session]` | Opens the session's terminal. Ctrl-\ leaves it running |
 | `/logs [-f] [session]` | `h2h logs [-f] [session]` | Prints or follows the session's terminal log |
 | `/stop [session]` | `h2h stop [session]` | Stops a session |
 | `/rm [session]` | `h2h rm [session]` | Removes a stopped session and its workspace |
-| `/map` | `h2h map` | Shows how the config is wired up as a tree: each harness, how it starts and answers questions, what environment it gets, and its sessions; see [docs/responsibility-map.md](docs/responsibility-map.md) |
+| `/map` | `h2h map` | Shows how the config is wired up as a tree: the domains with their owners and sub-agents, the flow between domains, and each harness with how it starts and its sessions; see [docs/responsibility-map.md](docs/responsibility-map.md) |
 | `/config` | `h2h config` | Shows the config. `/config edit` opens it in your editor, and `/config <description>` has the default harness propose the change |
-| plain text | | Asks the default harness, which sees the map, the session list and the commands |
+| plain text | | Asks the default harness, which sees the map, the domains as XML, the session list and the commands |
 
 Sessions keep running when the console exits. The config is `h2h.toml` at the project root; see [docs/configuration.md](docs/configuration.md).
 

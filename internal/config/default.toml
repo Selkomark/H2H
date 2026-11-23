@@ -19,11 +19,16 @@ default_harness = "claude"
 #   pass_env  extra environment variables the harness may see. A harness
 #             otherwise gets only a basic environment (HOME, PATH, TERM,
 #             locale, proxy settings), never your whole shell environment.
+#   context_args
+#             arguments that give a session extra instructions when it is
+#             started for a domain; its role is passed after them, as XML.
+#             Leave it out if the harness has no such option.
 
 [harness.claude]
 command = "claude"
 args = []
 ask_args = ["--permission-mode", "plan", "-p"]
+context_args = ["--append-system-prompt"]
 pass_env = ["ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN"]
 
 [harness.copilot]
@@ -37,3 +42,24 @@ command = "codex"
 args = []
 ask_args = ["exec", "--sandbox", "read-only"]
 pass_env = ["OPENAI_API_KEY"]
+
+# Domains of responsibility. Each is owned by one harness above, lists the
+# sub-agent roles that harness should use as specialists, and names the
+# domains whose work it depends on. A domain with no depends_on runs in
+# parallel with the rest. "/start <domain>" starts its owner with its role,
+# and "/map" draws all of it. For example:
+#
+# [domain.ui]
+# harness = "claude"
+# does = "The web frontend"
+# paths = ["web/**"]
+#   [[domain.ui.subagent]]
+#   role = "coder"
+#   does = "Writes the components"
+#   [[domain.ui.subagent]]
+#   role = "reviewer"
+#
+# [domain.e2e]
+# harness = "copilot"
+# does = "End-to-end tests across the app"
+# depends_on = ["ui", "backend"]

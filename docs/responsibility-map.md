@@ -1,6 +1,6 @@
 # Responsibility map: H2H
 
-**Status: proposal.** The first slice is built: `/map` draws the config as it exists today (harnesses, how each starts, what it may see, its sessions) and the same map is given to the default harness as context. Domains, paths and sub-agent roles are not in the config schema yet.
+**Status: built in the console.** `[domain.*]` is in the config, `/map` draws domains, flow and harnesses, and `/start <domain>` passes the domain's role to its harness as XML. The web map is for later, with `h2h serve`.
 
 How the user declares who owns what, including the roles of each harness's sub-agents, and how H2H shows that as a map of ownership and work flow.
 
@@ -43,38 +43,41 @@ The structure of the map comes only from config, and only the colours come from 
 
 ## What is declared
 
-A sketch in TOML, the format currently favoured. The config schema is not designed yet, so names are illustrative.
+Domains come first. Each names the harness that owns it, the specialists it uses, and the domains it waits for. The full list of settings is in [configuration.md](configuration.md).
 
 ```toml
-[[harness]]
-name   = "builder"
-uses   = "claude"
-domain = "Web UI"
-paths  = ["web/**"]
+[domain.ui]
+harness = "claude"
+does    = "The web frontend"
+paths   = ["web/**"]
+  [[domain.ui.subagent]]
+  role = "coder"
+  [[domain.ui.subagent]]
+  role = "reviewer"
+  [[domain.ui.subagent]]
+  role = "tester"
 
-  [[harness.subagent]]
-  role = "component author"
-  does = "Writes React components to the design system"
+[domain.backend]
+harness = "codex"
 
-  [[harness.subagent]]
-  role = "a11y reviewer"
-  does = "Checks every change for accessibility"
+[domain.e2e]
+harness    = "copilot"
+depends_on = ["ui", "backend"]   # joins the two
 
-[[harness]]
-name   = "tester"
-uses   = "copilot"
-domain = "UI testing"
-tests  = ["builder"]
+[domain.finance]
+harness = "claude"               # no depends_on: runs in parallel, unconnected
 ```
 
-**Flow is derived, not drawn.** Edges such as builder to tester to human come from rules the config already has: who tests which owner, and which ticket types need human approval ([governance.md](governance.md)). Declaring the same handoffs again would give two sources for one fact.
+**Flow is `depends_on`.** One field gives every shape: domains with no links run in parallel, a chain is linear, and a domain listing several joins them. Circles are rejected when the config is read, because work in them could never start.
+
+**Roles reach the harness as XML.** `/start ui` starts the owner of `ui` and passes an `<h2h_roles>` document after the harness's `context_args`: every domain, with the one it owns marked `yours="true"`. The default harness gets the same document, without a domain marked, when it answers a question typed into the console. XML is used because models follow tagged structure well and the encoder escapes the user's text.
 
 ## The views
 
 | View | What it shows | How |
 |---|---|---|
-| `/map` in the console, `h2h map` in scripts | H2H at the root, then each harness, its domain and paths, then its sub-agent roles, with a status icon per harness | An indented tree |
-| `/map --flow` | Who hands work to whom: builder to tester, tester to human, and which ticket types skip a step | One line per edge, grouped by owner. Optionally `--mermaid`, which prints Mermaid text for GitHub or a browser |
+| `/map` in the console, `h2h map` in scripts | Domains with their owner, paths, sub-agents and sessions; the flow (`backend + ui → e2e`, `finance independent`); and each harness with how it starts and whether it can be given a role | An indented tree. Built |
+| Later: `/map --mermaid` | The same map as Mermaid text, for GitHub or a browser | Not built |
 | `h2h serve` | The full mindmap: ownership radiating from H2H, handoffs as arrows, live status colours, click a node to open its session or pending approval | An interactive graph in the browser |
 
 A terminal cannot draw a true mindmap. A tree covers "who owns what", which is most of what the user asks, and the web view carries the rest.

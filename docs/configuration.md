@@ -8,7 +8,7 @@ The team is declared as code, in the way Terraform declares infrastructure. The 
 
 ## The file
 
-The config is one TOML file, `h2h.toml`, at the project root, meant to be committed. A project without one runs on the defaults H2H ships with. So far it declares the harness pool and the default harness:
+The config is one TOML file, `h2h.toml`, at the root of the git repository H2H runs in, meant to be committed. Each project therefore has its own harnesses and domains. A project without one runs on the defaults H2H ships with. So far it declares the harness pool, the default harness and the domains of responsibility:
 
 ```toml
 default_harness = "claude"
@@ -18,6 +18,20 @@ command = "claude"
 args = []
 ask_args = ["--permission-mode", "plan", "-p"]
 pass_env = ["ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN"]
+context_args = ["--append-system-prompt"]
+
+[domain.ui]
+harness = "claude"
+does = "The web frontend"
+paths = ["web/**"]
+  [[domain.ui.subagent]]
+  role = "coder"
+  [[domain.ui.subagent]]
+  role = "reviewer"
+
+[domain.e2e]
+harness = "copilot"
+depends_on = ["ui", "backend"]
 ```
 
 | Setting | Meaning |
@@ -26,6 +40,10 @@ pass_env = ["ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN"]
 | `command`, `args` | How to start an interactive session |
 | `ask_args` | How to get one non-interactive answer. The prompt is appended. A read-only mode is used where the harness has one |
 | `pass_env` | Environment variables the harness may see beyond the basic set. Names only; values stay in the environment |
+| `context_args` | How to give a session extra instructions at start. A session started for a domain gets its role as XML after these arguments. Without them the session is not told its role |
+| `[domain.<name>]` | An area of responsibility. `harness` owns it, `does` says what it covers, `paths` are the files it owns |
+| `[[domain.<name>.subagent]]` | A specialist role (`role`, `does`) the owner is asked to use inside the domain. Advice to the harness: H2H cannot see or enforce it |
+| `depends_on` | Domains whose work this one waits for. A domain without it runs in parallel. Circles are rejected |
 
 Unknown settings are rejected, so a typing mistake is reported instead of ignored.
 

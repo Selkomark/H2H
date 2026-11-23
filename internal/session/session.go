@@ -36,6 +36,7 @@ const startGrace = 15 * time.Second
 type Info struct {
 	ID         string    `json:"id"`
 	Harness    string    `json:"harness"`
+	Domain     string    `json:"domain,omitempty"`
 	Workspace  string    `json:"workspace"`
 	Socket     string    `json:"socket,omitempty"`
 	KeeperPID  int       `json:"keeper_pid,omitempty"`

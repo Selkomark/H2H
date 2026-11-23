@@ -92,7 +92,11 @@ func Run(root, id string) error {
 		return fail(err)
 	}
 
-	cmd := exec.Command(h.Command, h.Args...)
+	args := append([]string{}, h.Args...)
+	if info.Domain != "" && len(h.ContextArgs) > 0 {
+		args = append(append(args, h.ContextArgs...), cfg.RolesXML(info.Domain))
+	}
+	cmd := exec.Command(h.Command, args...)
 	cmd.Dir = info.Workspace
 	cmd.Env = harness.Env(h, os.Environ(), "H2H_SESSION="+id)
 	ptmx, err := pty.StartWithSize(cmd, &pty.Winsize{Rows: defaultRows, Cols: defaultCols})

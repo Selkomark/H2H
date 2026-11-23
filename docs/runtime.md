@@ -243,12 +243,12 @@ Run with no arguments, `h2h` opens its console. It takes the whole screen as one
 | Command | Does | Status |
 |---|---|---|
 | `h2h` | Opens the console | Built |
-| `h2h start [harness]` | Starts a session of a harness, the default one if none is named | Built |
+| `h2h start [harness \| domain]` | Starts a session of a harness, the default one if none is named. A domain starts its owner, named after the domain (`ui-1`), with its role passed as XML through `context_args` | Built |
 | `h2h ps` | Lists sessions with harness, state, age and workspace. In the console, `/ps` opens the Sessions tab instead. Domain and ticket come later | Built |
 | `h2h logs [-f] [session]` | Prints or follows one session's terminal log | Built |
 | `h2h attach [session]` | Opens the session's terminal. Ctrl-\ leaves it running | Built |
 | `h2h stop [session]`, `h2h rm [session]` | Stops a session; removes a stopped session and its workspace | Built |
-| `h2h map` | Shows how the config is wired up as a tree, with each harness's sessions; see [responsibility-map.md](responsibility-map.md) | Built |
+| `h2h map` | Shows how the config is wired up as a tree: domains, the flow between them, and harnesses with their sessions; see [responsibility-map.md](responsibility-map.md) | Built |
 | `h2h config [show \| edit \| <description>]` | Shows, edits or describes a change to the config; see [configuration.md](configuration.md) | Built |
 | `h2h serve --port <n>` | Serves the web UI, including a terminal in the browser for each session | Later |
 
