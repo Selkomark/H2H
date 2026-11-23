@@ -246,6 +246,7 @@ func (e *env) ask(ctx context.Context, text string) error {
 	if len(infos) > 0 {
 		state = sessionTable(e.root, infos, plainStyles())
 	}
+	wiring := configMap(e.root, cfg, infos, plainStyles())
 	var help strings.Builder
 	helper := *e
 	helper.out, helper.st = &help, plainStyles()
@@ -254,6 +255,7 @@ func (e *env) ask(ctx context.Context, text string) error {
 	prompt := "You are answering a message typed into the console of H2H, a tool that supervises coding-agent harness sessions " +
 		"for the project in the current directory. Answer briefly in plain text. Do not change any file. " +
 		"If the user wants something a console command does, tell them the command.\n\n" +
+		"How the config is wired up (the /map command):\n" + wiring + "\n" +
 		"Sessions right now:\n" + state + "\n" + help.String() + "\nMessage: " + text + "\n"
 
 	fmt.Fprintln(e.out, e.st.dim.Render("Asking "+name+"..."))

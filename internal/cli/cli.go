@@ -86,6 +86,7 @@ func commands() []command {
 		{"logs", "[-f] [session]", "Print a session's terminal log; -f follows it", (*env).logs},
 		{"stop", "[session]", "Stop a running session", (*env).stop},
 		{"rm", "[session]", "Remove a stopped session and its workspace", (*env).rm},
+		{"map", "", "Show how the config is wired up, with each harness's sessions", (*env).mapCmd},
 		{"config", "[show | edit | <text>]", "Show the config, edit it, or describe a change in words", (*env).config},
 		{"help", "", "Show this help", (*env).help},
 	}

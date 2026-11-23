@@ -51,8 +51,9 @@ h2h
 | `/logs [-f] [session]` | `h2h logs [-f] [session]` | Prints or follows the session's terminal log |
 | `/stop [session]` | `h2h stop [session]` | Stops a session |
 | `/rm [session]` | `h2h rm [session]` | Removes a stopped session and its workspace |
+| `/map` | `h2h map` | Shows how the config is wired up as a tree: each harness, how it starts and answers questions, what environment it gets, and its sessions; see [docs/responsibility-map.md](docs/responsibility-map.md) |
 | `/config` | `h2h config` | Shows the config. `/config edit` opens it in your editor, and `/config <description>` has the default harness propose the change |
-| plain text | | Asks the default harness, which sees the session list and the commands |
+| plain text | | Asks the default harness, which sees the map, the session list and the commands |
 
 Sessions keep running when the console exits. The config is `h2h.toml` at the project root; see [docs/configuration.md](docs/configuration.md).
 
@@ -83,6 +84,7 @@ Read in this order:
 - [docs/planning.md](docs/planning.md): kanban and managed modes, the project manager, estimation, sprints and the retro
 - [docs/cost.md](docs/cost.md): where cost comes from and how the design limits it
 - [docs/configuration.md](docs/configuration.md): config as code, the CLI and the UI
+- [docs/responsibility-map.md](docs/responsibility-map.md): who owns what, and how it is drawn in the console and later the web UI
 - [docs/authentication.md](docs/authentication.md): the four authentication problems and how to approach each
 - [docs/licensing.md](docs/licensing.md): which dependency licences are allowed, and how that is checked
 - [docs/prior-art.md](docs/prior-art.md): existing projects, where H2H intends to differ, and the clean-room rule

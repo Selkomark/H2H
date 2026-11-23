@@ -248,6 +248,7 @@ Run with no arguments, `h2h` opens its console. It takes the whole screen as one
 | `h2h logs [-f] [session]` | Prints or follows one session's terminal log | Built |
 | `h2h attach [session]` | Opens the session's terminal. Ctrl-\ leaves it running | Built |
 | `h2h stop [session]`, `h2h rm [session]` | Stops a session; removes a stopped session and its workspace | Built |
+| `h2h map` | Shows how the config is wired up as a tree, with each harness's sessions; see [responsibility-map.md](responsibility-map.md) | Built |
 | `h2h config [show \| edit \| <description>]` | Shows, edits or describes a change to the config; see [configuration.md](configuration.md) | Built |
 | `h2h serve --port <n>` | Serves the web UI, including a terminal in the browser for each session | Later |
 
