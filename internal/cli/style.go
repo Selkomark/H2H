@@ -83,9 +83,10 @@ func (st styles) diff(d string) string {
 	return strings.Join(lines, "\n") + "\n"
 }
 
-// table lays out rows in aligned columns. Cells are padded before they are
-// styled, so colour codes never disturb the alignment.
-func table(header []string, rows [][]string, headStyle lipgloss.Style, cellStyle func(row, col int) lipgloss.Style) string {
+// table lays out rows in aligned columns and returns one line for the
+// header and one per row. Cells are padded before they are styled, so
+// colour codes never disturb the alignment.
+func table(header []string, rows [][]string, headStyle lipgloss.Style, cellStyle func(row, col int) lipgloss.Style) []string {
 	width := make([]int, len(header))
 	for c, h := range header {
 		width[c] = lipgloss.Width(h)
@@ -101,16 +102,17 @@ func table(header []string, rows [][]string, headStyle lipgloss.Style, cellStyle
 		}
 		return s + strings.Repeat(" ", width[c]-lipgloss.Width(s)+2)
 	}
-	var out strings.Builder
+	var line strings.Builder
 	for c, h := range header {
-		out.WriteString(headStyle.Render(pad(h, c)))
+		line.WriteString(headStyle.Render(pad(h, c)))
 	}
-	out.WriteByte('\n')
+	lines := []string{line.String()}
 	for r, row := range rows {
+		line.Reset()
 		for c, cell := range row {
-			out.WriteString(cellStyle(r, c).Render(pad(cell, c)))
+			line.WriteString(cellStyle(r, c).Render(pad(cell, c)))
 		}
-		out.WriteByte('\n')
+		lines = append(lines, line.String())
 	}
-	return out.String()
+	return lines
 }

@@ -42,16 +42,45 @@ type Theme struct {
 	Frame  lipgloss.TerminalColor // the frame around the page and the rules inside it
 }
 
-// View is a page of live information with its own tab, beside the
-// transcript.
+// View is a live list with its own tab, beside the transcript. The user
+// moves through its rows with the arrow keys and acts on the selected one.
 type View struct {
 	// Name is the label of the tab.
 	Name string
 	// Command, when typed, switches to this view instead of running anything.
 	Command string
-	// Render returns the content of the view. It is called every few
+	// Table returns the content of the view. It is called every few
 	// seconds while the console is open.
-	Render func() string
+	Table func() Table
+	// Actions are what the user can do to the selected row.
+	Actions []Action
+}
+
+// Table is the content of a view at one moment.
+type Table struct {
+	Header string
+	Rows   []Row
+	// Empty is shown in place of the rows when there are none.
+	Empty string
+}
+
+// Row is one selectable line of a view.
+type Row struct {
+	ID   string // what an action is applied to; stable between refreshes
+	Text string
+}
+
+// Action is a key that acts on the selected row of a view, by running a
+// line exactly as if the user had typed it.
+type Action struct {
+	// Key is "enter" or a single character.
+	Key string
+	// Label names the action in the hint line.
+	Label string
+	// Line returns the line to run for the row with the given ID.
+	Line func(id string) string
+	// Confirm, if set, is asked first. %s stands for the row's ID.
+	Confirm string
 }
 
 // Options configures a console.

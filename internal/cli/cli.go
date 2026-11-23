@@ -193,9 +193,18 @@ func (e *env) console() error {
 		Theme: console.Theme{Accent: e.st.accent, Dim: e.st.dim, Frame: frameColor},
 		Title: e.st.accent.Render("H2H") + " " + e.st.dim.Render(Version+"  ·  ") + displayPath(e.root, os.Getenv("HOME"), 40) +
 			e.st.dim.Render("  ·  default harness ") + harnessName,
-		Intro:     intro,
-		Status:    e.statusLine,
-		Views:     []console.View{{Name: "Sessions", Command: "/ps", Render: e.sessionsView}},
+		Intro:  intro,
+		Status: e.statusLine,
+		Views: []console.View{{
+			Name:    "Sessions",
+			Command: "/ps",
+			Table:   e.sessionsView,
+			Actions: []console.Action{
+				{Key: "enter", Label: "attach", Line: func(id string) string { return "/attach " + id }},
+				{Key: "s", Label: "stop", Line: func(id string) string { return "/stop " + id }, Confirm: "Stop %s?"},
+				{Key: "d", Label: "delete", Line: func(id string) string { return "/rm " + id }, Confirm: "Delete %s and its workspace?"},
+			},
+		}},
 		Commands:  suggestions,
 		Arguments: e.argumentSuggestions,
 		Handle: func(ctx context.Context, ui console.UI, line string) bool {

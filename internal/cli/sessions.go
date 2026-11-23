@@ -34,17 +34,22 @@ func (e *env) ps(_ context.Context, _ []string) error {
 	return nil
 }
 
-// sessionTable lists sessions, one per row.
+// sessionTable lists sessions, one per row, under a header.
 func sessionTable(root string, infos []session.Info, st styles) string {
+	return strings.Join(sessionLines(root, infos, st), "\n") + "\n"
+}
+
+// sessionLines returns the header of the session list followed by one line
+// per session.
+func sessionLines(root string, infos []session.Info, st styles) []string {
 	const stateCol = 2
 	var rows [][]string
 	for _, i := range infos {
-		state := stateText(i)
 		ws, err := filepath.Rel(root, i.Workspace)
 		if err != nil {
 			ws = i.Workspace
 		}
-		rows = append(rows, []string{i.ID, i.Harness, state, age(time.Since(i.Started)), ws})
+		rows = append(rows, []string{i.ID, i.Harness, stateText(i), age(time.Since(i.Started)), ws})
 	}
 	return table([]string{"SESSION", "HARNESS", "STATE", "AGE", "WORKSPACE"}, rows, st.dim,
 		func(row, col int) lipgloss.Style {
@@ -232,18 +237,20 @@ func (e *env) rm(ctx context.Context, args []string) error {
 }
 
 // sessionsView is the content of the console's Sessions tab.
-func (e *env) sessionsView() string {
+func (e *env) sessionsView() console.Table {
 	infos, err := session.List(e.root)
 	if err != nil {
-		return e.st.bad.Render(err.Error())
+		return console.Table{Empty: e.st.bad.Render(err.Error())}
 	}
-	if len(infos) == 0 {
-		return e.st.dim.Render("No sessions. Start one with ") + e.st.accent.Render("/start [harness]")
+	lines := sessionLines(e.root, infos, e.st)
+	t := console.Table{
+		Header: lines[0],
+		Empty:  e.st.dim.Render("No sessions. Start one with ") + e.st.accent.Render("/start [harness]"),
 	}
-	return sessionTable(e.root, infos, e.st) + "\n" +
-		e.st.dim.Render("Open one with ") + e.st.accent.Render("/attach <session>") +
-		e.st.dim.Render(", stop it with ") + e.st.accent.Render("/stop") +
-		e.st.dim.Render(", remove it with ") + e.st.accent.Render("/rm") + e.st.dim.Render(".")
+	for n, i := range infos {
+		t.Rows = append(t.Rows, console.Row{ID: i.ID, Text: lines[n+1]})
+	}
+	return t
 }
 
 // statusLine summarises the sessions in one line, for the top of the console.

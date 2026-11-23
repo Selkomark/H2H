@@ -46,7 +46,7 @@ h2h
 | In the console | From the shell | Does |
 |---|---|---|
 | `/start [harness]` | `h2h start [harness]` | Starts a session in its own worktree under `.h2h/workspaces/` |
-| `/ps` | `h2h ps` | Lists sessions. In the console it opens the Sessions tab, which updates live |
+| `/ps` | `h2h ps` | Lists sessions. In the console it opens the Sessions tab, which updates live: arrows select, Enter attaches, `s` stops, `d` deletes |
 | `/attach [session]` | `h2h attach [session]` | Opens the session's terminal. Ctrl-\ leaves it running |
 | `/logs [-f] [session]` | `h2h logs [-f] [session]` | Prints or follows the session's terminal log |
 | `/stop [session]` | `h2h stop [session]` | Stops a session |

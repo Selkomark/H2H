@@ -37,6 +37,7 @@ const (
 	defaultRows, defaultCols = 40, 120
 	stopGrace                = 5 * time.Second
 	clientWriteTimeout       = 2 * time.Second
+	redrawNudge              = 150 * time.Millisecond
 )
 
 type keeper struct {
@@ -198,10 +199,16 @@ func (k *keeper) serve(conn net.Conn) {
 			if rows == 0 || cols == 0 {
 				continue
 			}
-			// A harness redraws only when its size changes. Passing through
-			// a different size first makes a newly attached client get a
-			// full screen even when its terminal matches the last one.
-			_ = pty.Setsize(k.ptmx, &pty.Winsize{Rows: rows, Cols: cols - 1})
+			// A harness redraws only when it sees its size change, and a
+			// newly attached client needs a full screen even when its
+			// terminal matches the last one. So an unchanged size is first
+			// set one column narrower, and held there long enough for the
+			// harness to notice: two changes in quick succession reach it
+			// as one signal, after which it finds the size it already had.
+			if cur, err := pty.GetsizeFull(k.ptmx); err == nil && cur.Rows == rows && cur.Cols == cols && cols > 1 {
+				_ = pty.Setsize(k.ptmx, &pty.Winsize{Rows: rows, Cols: cols - 1})
+				time.Sleep(redrawNudge)
+			}
 			_ = pty.Setsize(k.ptmx, &pty.Winsize{Rows: rows, Cols: cols})
 		default:
 			return

@@ -100,8 +100,18 @@ func newTestModel(handle func(line string) bool) *model {
 		Title:     "H2H",
 		Commands:  testCommands,
 		Arguments: testArguments,
-		Views:     []View{{Name: "Sessions", Command: "/ps", Render: func() string { return "SESSION TABLE" }}},
-		Handle:    func(_ context.Context, _ UI, line string) bool { return handle(line) },
+		Views: []View{{
+			Name:    "Sessions",
+			Command: "/ps",
+			Table: func() Table {
+				return Table{Header: "SESSION TABLE", Rows: []Row{{ID: "claude-1", Text: "claude-1 row"}, {ID: "codex-1", Text: "codex-1 row"}}}
+			},
+			Actions: []Action{
+				{Key: "enter", Label: "attach", Line: func(id string) string { return "/attach " + id }},
+				{Key: "s", Label: "stop", Line: func(id string) string { return "/stop " + id }, Confirm: "Stop %s?"},
+			},
+		}},
+		Handle: func(_ context.Context, _ UI, line string) bool { return handle(line) },
 	}, fakeUI{})
 	m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 	return m
@@ -269,6 +279,54 @@ func TestConfirm(t *testing.T) {
 		if m.input.Value() != "" {
 			t.Errorf("the answer %q leaked into the input line", tt.key)
 		}
+	}
+}
+
+func TestViewSelectionAndActions(t *testing.T) {
+	var ran []string
+	m := newTestModel(func(line string) bool { ran = append(ran, line); return false })
+	m.Update(tea.KeyMsg{Type: tea.KeyShiftTab})
+	if !strings.Contains(m.View(), "› claude-1 row") {
+		t.Fatalf("the first row is not selected:\n%s", m.View())
+	}
+
+	m.Update(tea.KeyMsg{Type: tea.KeyDown})
+	if !strings.Contains(m.View(), "› codex-1 row") {
+		t.Fatalf("down did not select the second row:\n%s", m.View())
+	}
+	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	run(m, cmd)
+	if len(ran) != 1 || ran[0] != "/attach codex-1" {
+		t.Fatalf("enter ran %q, want [/attach codex-1]", ran)
+	}
+	if m.tab != 1 {
+		t.Errorf("after an action: tab = %d, want to stay on the view", m.tab)
+	}
+
+	// An action with a question runs only on yes.
+	typeText(m, "s")
+	if !strings.Contains(m.View(), "Stop codex-1?") {
+		t.Fatalf("s did not ask before stopping:\n%s", m.View())
+	}
+	typeText(m, "n")
+	if len(ran) != 1 {
+		t.Fatalf("declined, but ran %q", ran)
+	}
+	typeText(m, "s")
+	_, cmd = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("y")})
+	run(m, cmd)
+	if len(ran) != 2 || ran[1] != "/stop codex-1" {
+		t.Errorf("confirmed stop ran %q, want /stop codex-1 last", ran)
+	}
+
+	// Other keys are typed as usual, and typing takes the keys back.
+	typeText(m, "/")
+	if m.input.Value() != "/" {
+		t.Errorf("typing / on a view: line = %q, want %q", m.input.Value(), "/")
+	}
+	typeText(m, "s")
+	if m.input.Value() != "/s" || m.confirm != nil {
+		t.Errorf("s while typing: line = %q, confirm = %v; want it typed", m.input.Value(), m.confirm)
 	}
 }
 

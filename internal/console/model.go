@@ -2,6 +2,7 @@ package console
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"time"
 
@@ -39,11 +40,14 @@ type (
 	doneMsg   struct{ quit bool }
 	statusMsg struct {
 		status string
-		views  []string
+		views  []Table
 	}
+	// confirmMsg asks the user a question. The answer goes to reply when a
+	// command asked, or to then when the console itself did.
 	confirmMsg struct {
 		question string
 		reply    chan<- bool
+		then     func() tea.Cmd
 	}
 	foregroundMsg struct {
 		fn    func() error
@@ -63,7 +67,10 @@ type model struct {
 	transcript    string
 	status        string
 	tab           int      // 0 is the transcript, n is Views[n-1]
-	views         []string // the last rendering of each view
+	views         []Table  // the last content of each view
+	selectedID    []string // the selected row of each view
+	notice        string   // what the last action on a view printed
+	noticeFrom    int      // where that action's output starts in the transcript, or -1
 
 	offers      []Suggestion
 	forArgument bool
@@ -90,7 +97,8 @@ func newModel(o Options, ui UI) *model {
 	sp.Spinner = spinner.MiniDot
 	sp.Style = o.Theme.Accent
 
-	m := &model{o: o, ui: ui, input: in, view: viewport.New(0, 0), spin: sp, transcript: o.Intro}
+	m := &model{o: o, ui: ui, input: in, view: viewport.New(0, 0), spin: sp, transcript: o.Intro, noticeFrom: -1}
+	m.selectedID = make([]string, len(o.Views))
 	m.apply(m.snapshot())
 	return m
 }
@@ -103,7 +111,7 @@ func (m *model) snapshot() statusMsg {
 		s.status = m.o.Status()
 	}
 	for _, v := range m.o.Views {
-		s.views = append(s.views, v.Render())
+		s.views = append(s.views, v.Table())
 	}
 	return s
 }
@@ -138,6 +146,9 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case doneMsg:
 		m.busy, m.cancel = false, nil
+		if from := m.noticeFrom; from >= 0 {
+			m.notice, m.noticeFrom = strings.TrimSpace(m.transcript[min(from, len(m.transcript)):]), -1
+		}
 		m.apply(m.snapshot()) // a command usually changes what the views show
 		if msg.quit {
 			return m, tea.Quit
@@ -199,9 +210,14 @@ func (m *model) key(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if yes {
 			answer = "yes"
 		}
-		m.print(m.o.Theme.Accent.Render(m.confirm.question) + " " + answer + "\n")
-		m.confirm.reply <- yes
+		c := m.confirm
 		m.confirm = nil
+		if c.reply != nil {
+			m.print(m.o.Theme.Accent.Render(c.question) + " " + answer + "\n")
+			c.reply <- yes
+		} else if yes {
+			return m, c.then()
+		}
 		return m, nil
 	}
 
@@ -210,6 +226,13 @@ func (m *model) key(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.cancel()
 		}
 		return m, nil
+	}
+
+	// On a view, with nothing typed, the keys belong to the list.
+	if m.tab > 0 && m.input.Value() == "" {
+		if cmd, handled := m.viewKey(k); handled {
+			return m, cmd
+		}
 	}
 
 	switch k.Type {
@@ -296,6 +319,63 @@ func (m *model) submit(line string) tea.Cmd {
 		return doneMsg{quit: m.o.Handle(ctx, m.ui, line)}
 	}
 	return tea.Batch(m.spin.Tick, run)
+}
+
+// viewKey handles a key for the list on screen. It reports whether the key
+// was one of the list's.
+func (m *model) viewKey(k tea.KeyMsg) (tea.Cmd, bool) {
+	v, rows := m.o.Views[m.tab-1], m.views[m.tab-1].Rows
+	at := m.selection()
+	switch k.Type {
+	case tea.KeyUp, tea.KeyDown:
+		if len(rows) > 0 {
+			step := 1
+			if k.Type == tea.KeyUp {
+				step = -1
+			}
+			m.selectedID[m.tab-1] = rows[(at+step+len(rows))%len(rows)].ID
+			m.notice = ""
+		}
+		return nil, true
+	}
+	key := ""
+	switch {
+	case k.Type == tea.KeyEnter:
+		key = "enter"
+	case k.Type == tea.KeyRunes && len(k.Runes) == 1:
+		key = string(k.Runes)
+	}
+	for _, a := range v.Actions {
+		if a.Key != key {
+			continue
+		}
+		if len(rows) == 0 {
+			return nil, true
+		}
+		id := rows[at].ID
+		run := func() tea.Cmd {
+			cmd := m.submit(a.Line(id))
+			m.notice, m.noticeFrom = "", len(m.transcript)
+			return cmd
+		}
+		if a.Confirm == "" {
+			return run(), true
+		}
+		m.confirm = &confirmMsg{question: fmt.Sprintf(a.Confirm, id), then: run}
+		return nil, true
+	}
+	return nil, false
+}
+
+// selection returns the index of the selected row of the view on screen.
+// The selection follows a row by its ID, so a refresh does not move it.
+func (m *model) selection() int {
+	for n, r := range m.views[m.tab-1].Rows {
+		if r.ID == m.selectedID[m.tab-1] {
+			return n
+		}
+	}
+	return 0
 }
 
 // remember adds a line to the history.
@@ -409,7 +489,7 @@ func (m *model) View() string {
 	if m.tab == 0 {
 		middle = append(middle, m.view.View())
 	} else {
-		middle = append(middle, fit(m.views[m.tab-1], inner, m.middleHeight()-len(rows)))
+		middle = append(middle, fit(m.viewText(), inner, m.middleHeight()-len(rows)))
 	}
 	middle = append(middle, rows...)
 	body := section.Border(midFrame, true, true, false, true).Render(strings.Join(middle, "\n"))
@@ -422,6 +502,9 @@ func (m *model) View() string {
 		line, hint = m.spin.View()+" "+th.Dim.Render("working"), busyHint
 	default:
 		line, hint = m.input.View(), idleHint
+		if m.tab > 0 && m.input.Value() == "" {
+			hint = m.viewHint()
+		}
 		if len(shown) > 0 {
 			hint = suggestionsHint
 		}
@@ -432,6 +515,36 @@ func (m *model) View() string {
 	input := section.Border(endFrame).Render(clip(line, inner))
 
 	return strings.Join([]string{header, body, input, th.Dim.Render(clip(" "+hint, m.width))}, "\n")
+}
+
+// viewText draws the list of the view on screen.
+func (m *model) viewText() string {
+	th, t := m.o.Theme, m.views[m.tab-1]
+	if len(t.Rows) == 0 {
+		return t.Empty
+	}
+	lines := []string{"  " + t.Header}
+	at := m.selection()
+	for n, r := range t.Rows {
+		if n == at {
+			lines = append(lines, th.Accent.Render("› ")+r.Text)
+		} else {
+			lines = append(lines, "  "+r.Text)
+		}
+	}
+	if m.notice != "" {
+		lines = append(lines, "", m.notice)
+	}
+	return strings.Join(lines, "\n")
+}
+
+// viewHint lists the keys of the view on screen.
+func (m *model) viewHint() string {
+	parts := []string{"↑↓ select"}
+	for _, a := range m.o.Views[m.tab-1].Actions {
+		parts = append(parts, a.Key+" "+a.Label)
+	}
+	return strings.Join(append(parts, "/ command", "shift+tab switch view"), " · ")
 }
 
 // tabRow shows the tabs on the left and the status on the right.
