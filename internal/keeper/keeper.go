@@ -15,6 +15,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"path/filepath"
 	"sync"
 	"syscall"
 	"time"
@@ -93,12 +94,27 @@ func Run(root, id string) error {
 	}
 
 	args := append([]string{}, h.Args...)
-	if info.Domain != "" && len(h.ContextArgs) > 0 {
-		args = append(append(args, h.ContextArgs...), cfg.RolesXML(info.Domain))
+	extraEnv := []string{"H2H_SESSION=" + id}
+	if info.Domain != "" && h.PassesRoles() {
+		roles := cfg.RolesXML(info.Domain)
+		// The roles file lives in the session's state directory, never in
+		// the workspace, so nothing H2H writes ends up in the project.
+		rolesDir := filepath.Join(session.Dir(root, id), "roles")
+		if len(h.ContextEnv) > 0 {
+			if err := os.MkdirAll(rolesDir, 0o700); err != nil {
+				return fail(err)
+			}
+			if err := os.WriteFile(filepath.Join(rolesDir, harness.RolesFile), []byte(roles), 0o600); err != nil {
+				return fail(err)
+			}
+		}
+		ctxArgs, ctxEnv := harness.Context(h, roles, rolesDir)
+		args = append(args, ctxArgs...)
+		extraEnv = append(extraEnv, ctxEnv...)
 	}
 	cmd := exec.Command(h.Command, args...)
 	cmd.Dir = info.Workspace
-	cmd.Env = harness.Env(h, os.Environ(), "H2H_SESSION="+id)
+	cmd.Env = harness.Env(h, os.Environ(), extraEnv...)
 	ptmx, err := pty.StartWithSize(cmd, &pty.Winsize{Rows: defaultRows, Cols: defaultCols})
 	if err != nil {
 		return fail(fmt.Errorf("starting %s: %w", h.Command, err))

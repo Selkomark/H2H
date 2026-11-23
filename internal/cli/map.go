@@ -107,9 +107,9 @@ func harnessesTree(cfg config.Config, infos []session.Info, st styles) *tree.Tre
 		b := newTree(st, label)
 		b.Child(field(st, "session", commandLine(h.Command, h.Args)))
 		b.Child(field(st, "question", commandLine(h.Command, h.AskArgs)+" "+st.dim.Render("<prompt>")))
-		roles := st.dim.Render("not passed (no context_args)")
-		if len(h.ContextArgs) > 0 {
-			roles = commandLine("", h.ContextArgs) + " " + st.dim.Render("<roles as XML>")
+		roles := st.dim.Render("not passed (no context_args or context_env)")
+		if h.PassesRoles() {
+			roles = strings.Join(append(slices.Clone(h.ContextArgs), h.ContextEnv...), " ")
 		}
 		b.Child(field(st, "roles", roles))
 		env := st.dim.Render("basic environment only")

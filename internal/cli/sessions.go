@@ -137,8 +137,8 @@ func (e *env) start(ctx context.Context, args []string) error {
 	if err := keeper.Spawn(e.root, info.ID); err != nil {
 		return fmt.Errorf("session %s failed to start: %w", info.ID, err)
 	}
-	if domain != "" && len(h.ContextArgs) == 0 {
-		fmt.Fprintln(e.out, e.st.warn.Render("Note:")+" harness "+name+" has no context_args in the config, so the session was not told its role in "+domain+".")
+	if domain != "" && !h.PassesRoles() {
+		fmt.Fprintln(e.out, e.st.warn.Render("Note:")+" harness "+name+" has no context_args or context_env in the config, so the session was not told its role in "+domain+".")
 	}
 	fmt.Fprintf(e.out, "%s %s. Open it with: %s\n", e.st.good.Render("Started"), info.ID, e.st.accent.Render("attach "+info.ID))
 	return nil

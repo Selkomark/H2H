@@ -92,3 +92,33 @@ func TestDomainRejects(t *testing.T) {
 		})
 	}
 }
+
+func TestContextRejects(t *testing.T) {
+	tests := []struct{ name, text, wantErr string }{
+		{"args without placeholder", `context_args = ["--append-system-prompt"]`, "must contain {roles}"},
+		{"env not NAME=value", `context_env = ["{roles_dir}"]`, "not NAME=value"},
+		{"env without placeholder", `context_env = ["DIRS=/tmp"]`, "must contain {roles_dir}"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := Parse("default_harness = \"a\"\n[harness.a]\ncommand = \"a\"\n" + tt.text)
+			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+				t.Errorf("Parse() error = %v, want it to contain %q", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+// Every shipped harness must be able to receive its role. See the
+// harness-parity skill.
+func TestShippedHarnessesPassRoles(t *testing.T) {
+	c, err := Parse(Template())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range c.Names() {
+		if !c.Harnesses[name].PassesRoles() {
+			t.Errorf("shipped harness %q has no way to receive its role", name)
+		}
+	}
+}

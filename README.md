@@ -94,6 +94,8 @@ Read in this order:
 
 Diagrams in these documents are Mermaid and follow the rules in `.claude/skills/mermaid-diagrams/`.
 
+Anything built or tested for one harness is built and tested for every harness, following `.claude/skills/harness-parity/`.
+
 Go code follows the package layout, dependency rule and principles (least privilege, KISS, DRY) in `.claude/skills/go-architecture/`.
 
 ## Licence

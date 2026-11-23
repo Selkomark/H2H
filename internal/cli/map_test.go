@@ -17,7 +17,7 @@ default_harness = "claude"
 command = "claude"
 ask_args = ["-p"]
 pass_env = ["ANTHROPIC_API_KEY"]
-context_args = ["--append-system-prompt"]
+context_args = ["--append-system-prompt", "{roles}"]
 
 [harness.codex]
 command = "codex"
@@ -71,14 +71,14 @@ harness = "claude"
     ├── claude (default: answers questions typed in the console)
     │   ├── session   claude
     │   ├── question  claude -p <prompt>
-    │   ├── roles     --append-system-prompt <roles as XML>
+    │   ├── roles     --append-system-prompt {roles}
     │   ├── env       basic + ANTHROPIC_API_KEY
     │   ╰── sessions
     │       ╰── ● ui-1 claude, running
     ├── codex
     │   ├── session   codex --full-auto
     │   ├── question  codex <prompt>
-    │   ├── roles     not passed (no context_args)
+    │   ├── roles     not passed (no context_args or context_env)
     │   ├── env       basic environment only
     │   ╰── sessions  none
     ╰── not in config

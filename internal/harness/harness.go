@@ -62,6 +62,23 @@ func Ask(ctx context.Context, h config.Harness, environ []string, dir, prompt st
 	return cmd.Run()
 }
 
+// RolesFile is the name of the file a harness reads its role from when it
+// is given one through context_env.
+const RolesFile = "AGENTS.md"
+
+// Context returns the extra arguments and environment that tell a harness
+// its role: roles is the XML, and rolesDir the directory that holds it as
+// RolesFile. Both are empty when the harness takes no context.
+func Context(h config.Harness, roles, rolesDir string) (args, env []string) {
+	for _, a := range h.ContextArgs {
+		args = append(args, strings.ReplaceAll(a, config.RolesPlaceholder, roles))
+	}
+	for _, kv := range h.ContextEnv {
+		env = append(env, strings.ReplaceAll(kv, config.RolesDirPlaceholder, rolesDir))
+	}
+	return args, env
+}
+
 func hasAnyPrefix(s string, prefixes []string) bool {
 	for _, p := range prefixes {
 		if strings.HasPrefix(s, p) {

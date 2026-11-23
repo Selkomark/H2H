@@ -40,3 +40,20 @@ func TestAskNeedsAskArgs(t *testing.T) {
 		t.Error("Ask without ask_args succeeded, want error")
 	}
 }
+
+func TestContext(t *testing.T) {
+	h := config.Harness{
+		ContextArgs: []string{"-c", "developer_instructions={roles}"},
+		ContextEnv:  []string{"DIRS=/x,{roles_dir}"},
+	}
+	args, env := Context(h, "<r/>", "/state/roles")
+	if want := []string{"-c", "developer_instructions=<r/>"}; !slices.Equal(args, want) {
+		t.Errorf("args = %q, want %q", args, want)
+	}
+	if want := []string{"DIRS=/x,/state/roles"}; !slices.Equal(env, want) {
+		t.Errorf("env = %q, want %q", env, want)
+	}
+	if args, env := Context(config.Harness{}, "<r/>", "/d"); args != nil || env != nil {
+		t.Errorf("no context settings gave %q, %q", args, env)
+	}
+}

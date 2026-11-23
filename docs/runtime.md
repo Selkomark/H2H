@@ -243,7 +243,7 @@ Run with no arguments, `h2h` opens its console. It takes the whole screen as one
 | Command | Does | Status |
 |---|---|---|
 | `h2h` | Opens the console | Built |
-| `h2h start [harness \| domain]` | Starts a session of a harness, the default one if none is named. A domain starts its owner, named after the domain (`ui-1`), with its role passed as XML through `context_args` | Built |
+| `h2h start [harness \| domain]` | Starts a session of a harness, the default one if none is named. A domain starts its owner, named after the domain (`ui-1`), with its role passed as XML through `context_args` or `context_env` | Built |
 | `h2h ps` | Lists sessions with harness, state, age and workspace. In the console, `/ps` opens the Sessions tab instead. Domain and ticket come later | Built |
 | `h2h logs [-f] [session]` | Prints or follows one session's terminal log | Built |
 | `h2h attach [session]` | Opens the session's terminal. Ctrl-\ leaves it running | Built |

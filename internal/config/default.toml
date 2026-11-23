@@ -19,28 +19,33 @@ default_harness = "claude"
 #   pass_env  extra environment variables the harness may see. A harness
 #             otherwise gets only a basic environment (HOME, PATH, TERM,
 #             locale, proxy settings), never your whole shell environment.
-#   context_args
-#             arguments that give a session extra instructions when it is
-#             started for a domain; its role is passed after them, as XML.
-#             Leave it out if the harness has no such option.
+#   context_args, context_env
+#             how a session started for a domain is told its role. In
+#             context_args, {roles} becomes the roles as XML. In context_env
+#             (NAME=value entries), {roles_dir} becomes a directory holding
+#             the roles as AGENTS.md, for harnesses that read instructions
+#             only from files. Each harness below uses the option it has
+#             for standing instructions, so all three get the same role.
 
 [harness.claude]
 command = "claude"
 args = []
 ask_args = ["--permission-mode", "plan", "-p"]
-context_args = ["--append-system-prompt"]
+context_args = ["--append-system-prompt", "{roles}"]
 pass_env = ["ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN"]
 
 [harness.copilot]
 command = "copilot"
 args = []
 ask_args = ["-p"]
+context_env = ["COPILOT_CUSTOM_INSTRUCTIONS_DIRS={roles_dir}"]
 pass_env = ["COPILOT_GITHUB_TOKEN", "GH_TOKEN", "GITHUB_TOKEN"]
 
 [harness.codex]
 command = "codex"
 args = []
 ask_args = ["exec", "--sandbox", "read-only"]
+context_args = ["-c", "developer_instructions={roles}"]
 pass_env = ["OPENAI_API_KEY"]
 
 # Domains of responsibility. Each is owned by one harness above, lists the

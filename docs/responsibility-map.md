@@ -70,7 +70,19 @@ harness = "claude"               # no depends_on: runs in parallel, unconnected
 
 **Flow is `depends_on`.** One field gives every shape: domains with no links run in parallel, a chain is linear, and a domain listing several joins them. Circles are rejected when the config is read, because work in them could never start.
 
-**Roles reach the harness as XML.** `/start ui` starts the owner of `ui` and passes an `<h2h_roles>` document after the harness's `context_args`: every domain, with the one it owns marked `yours="true"`. The default harness gets the same document, without a domain marked, when it answers a question typed into the console. XML is used because models follow tagged structure well and the encoder escapes the user's text.
+**Roles reach the harness as XML.** `/start ui` starts the owner of `ui` and gives it an `<h2h_roles>` document: every domain, with the one it owns marked `yours="true"`. The default harness gets the same document, without a domain marked, when it answers a question typed into the console. XML is used because models follow tagged structure well and the encoder escapes the user's text.
+
+### Passing roles to each harness
+
+Each harness gets the roles as standing instructions, which last for the whole session, rather than as a first message that a long session can compact away. The mechanism differs, so it is declared per harness in config, with placeholders H2H fills in:
+
+| Harness | Config | What H2H does | Checked on | Level reached |
+|---|---|---|---|---|
+| Claude Code | `context_args = ["--append-system-prompt", "{roles}"]` | Appends the XML to the system prompt | 2.1.330 | Accepted and loaded: the session starts with the option, a misspelt option is rejected, and the running process carries the XML |
+| Codex CLI | `context_args = ["-c", "developer_instructions={roles}"]` | Sets Codex's developer instructions for the session | 0.171.0 | Accepted and loaded: `--strict-config` accepts the key and rejects a misspelt one, and the running process carries the XML |
+| Copilot CLI | `context_env = ["COPILOT_CUSTOM_INSTRUCTIONS_DIRS={roles_dir}"]` | Writes the XML as `AGENTS.md` in the session's state directory, outside the workspace, and points Copilot at it | 1.0.114 | Loaded: `copilot instruction list` reports the file as an instruction source, and the running process has the variable |
+
+Copilot has no option for instructions on its command line except a first prompt, so it reads them from a file, as it does its hooks. Whether each model then follows its role needs signed-in harnesses and has not been tested on any of them. The procedure is in `.claude/skills/harness-parity/`.
 
 ## The views
 

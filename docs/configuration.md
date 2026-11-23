@@ -18,7 +18,7 @@ command = "claude"
 args = []
 ask_args = ["--permission-mode", "plan", "-p"]
 pass_env = ["ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN"]
-context_args = ["--append-system-prompt"]
+context_args = ["--append-system-prompt", "{roles}"]
 
 [domain.ui]
 harness = "claude"
@@ -40,7 +40,7 @@ depends_on = ["ui", "backend"]
 | `command`, `args` | How to start an interactive session |
 | `ask_args` | How to get one non-interactive answer. The prompt is appended. A read-only mode is used where the harness has one |
 | `pass_env` | Environment variables the harness may see beyond the basic set. Names only; values stay in the environment |
-| `context_args` | How to give a session extra instructions at start. A session started for a domain gets its role as XML after these arguments. Without them the session is not told its role |
+| `context_args`, `context_env` | How a session started for a domain is told its role. In `context_args`, `{roles}` becomes the roles as XML. In `context_env`, `{roles_dir}` becomes a directory holding them as `AGENTS.md`. Each shipped harness has one; see [responsibility-map.md](responsibility-map.md) |
 | `[domain.<name>]` | An area of responsibility. `harness` owns it, `does` says what it covers, `paths` are the files it owns |
 | `[[domain.<name>.subagent]]` | A specialist role (`role`, `does`) the owner is asked to use inside the domain. Advice to the harness: H2H cannot see or enforce it |
 | `depends_on` | Domains whose work this one waits for. A domain without it runs in parallel. Circles are rejected |

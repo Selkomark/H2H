@@ -43,11 +43,14 @@ type Harness struct {
 	Args    []string `toml:"args"`
 	AskArgs []string `toml:"ask_args"`
 	PassEnv []string `toml:"pass_env"`
-	// ContextArgs are the arguments that give the harness extra
-	// instructions at the start of a session; the instructions follow as
-	// the next argument. Without them a session started for a domain is
-	// not told its role.
+	// ContextArgs and ContextEnv tell a session started for a domain what
+	// its role is. In ContextArgs, {roles} is replaced by the roles as XML.
+	// In ContextEnv, entries are NAME=value and {roles_dir} is replaced by
+	// a directory holding the roles as AGENTS.md, for harnesses that read
+	// instructions only from files. A harness with neither is not told its
+	// role. See docs/responsibility-map.md.
 	ContextArgs []string `toml:"context_args"`
+	ContextEnv  []string `toml:"context_env"`
 }
 
 // Domain is an area of responsibility, owned by one harness. Its
@@ -171,6 +174,9 @@ func (c Config) validate() error {
 				return fmt.Errorf("harness %q: %q is not an environment variable name", name, v)
 			}
 		}
+		if err := h.validateContext(); err != nil {
+			return fmt.Errorf("harness %q: %w", name, err)
+		}
 	}
 	if c.DefaultHarness == "" {
 		return errors.New("default_harness is not set")
@@ -179,6 +185,32 @@ func (c Config) validate() error {
 		return fmt.Errorf("default_harness %q is not a configured harness (configured: %s)", c.DefaultHarness, strings.Join(c.Names(), ", "))
 	}
 	return c.validateDomains()
+}
+
+// The placeholders a harness's context settings may use.
+const (
+	RolesPlaceholder    = "{roles}"
+	RolesDirPlaceholder = "{roles_dir}"
+)
+
+// PassesRoles reports whether the harness is told its role when a session
+// is started for a domain.
+func (h Harness) PassesRoles() bool { return len(h.ContextArgs) > 0 || len(h.ContextEnv) > 0 }
+
+func (h Harness) validateContext() error {
+	if len(h.ContextArgs) > 0 && !slices.ContainsFunc(h.ContextArgs, func(a string) bool { return strings.Contains(a, RolesPlaceholder) }) {
+		return fmt.Errorf("context_args must contain %s where the roles go", RolesPlaceholder)
+	}
+	for _, kv := range h.ContextEnv {
+		name, value, ok := strings.Cut(kv, "=")
+		if !ok || !envRE.MatchString(name) {
+			return fmt.Errorf("context_env entry %q is not NAME=value", kv)
+		}
+		if !strings.Contains(value, RolesDirPlaceholder) {
+			return fmt.Errorf("context_env entry %q must contain %s", kv, RolesDirPlaceholder)
+		}
+	}
+	return nil
 }
 
 func (c Config) validateDomains() error {
