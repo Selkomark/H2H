@@ -81,11 +81,19 @@ func Init(root string) error {
 }
 
 // Create reserves a new session ID for a harness and writes its first record.
+//
+// IDs are the harness name and a number. A number is never used twice, even
+// after its session is removed, so an ID always means the same session in
+// logs, in the user's memory and on screen.
 func Create(root, harness string) (Info, error) {
 	if err := Init(root); err != nil {
 		return Info{}, err
 	}
-	for n := 1; n < 10000; n++ {
+	last, err := loadCounters(root)
+	if err != nil {
+		return Info{}, err
+	}
+	for n := last[harness] + 1; n < last[harness]+10000; n++ {
 		id := fmt.Sprintf("%s-%d", harness, n)
 		if !ValidID(id) {
 			return Info{}, fmt.Errorf("cannot make a session ID from harness name %q", harness)
@@ -97,10 +105,54 @@ func Create(root, harness string) (Info, error) {
 		if err != nil {
 			return Info{}, err
 		}
+		if err := saveCounter(root, harness, n); err != nil {
+			return Info{}, err
+		}
 		info := Info{ID: id, Harness: harness, State: Starting, Started: time.Now()}
 		return info, Save(root, info)
 	}
 	return Info{}, errors.New("too many sessions")
+}
+
+func countersPath(root string) string { return filepath.Join(StateDir(root), "counters.json") }
+
+// loadCounters reads the highest number given out so far for each harness.
+func loadCounters(root string) (map[string]int, error) {
+	last := map[string]int{}
+	data, err := os.ReadFile(countersPath(root))
+	if errors.Is(err, fs.ErrNotExist) {
+		return last, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	if err := json.Unmarshal(data, &last); err != nil {
+		return nil, fmt.Errorf("%s: %w", countersPath(root), err)
+	}
+	return last, nil
+}
+
+// saveCounter records that harness has been given number n. It rereads the
+// file first and never lowers a number, so two h2h processes starting
+// sessions at once cannot make one of them reusable.
+func saveCounter(root, harness string, n int) error {
+	last, err := loadCounters(root)
+	if err != nil {
+		return err
+	}
+	if last[harness] >= n {
+		return nil
+	}
+	last[harness] = n
+	data, err := json.Marshal(last)
+	if err != nil {
+		return err
+	}
+	tmp := fmt.Sprintf("%s.%d.tmp", countersPath(root), os.Getpid())
+	if err := os.WriteFile(tmp, data, 0o600); err != nil {
+		return err
+	}
+	return os.Rename(tmp, countersPath(root))
 }
 
 // Save writes the record atomically, so a reader never sees half a file.

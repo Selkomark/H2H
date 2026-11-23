@@ -70,6 +70,52 @@ func TestCreateSaveLoadList(t *testing.T) {
 	}
 }
 
+func TestCreateNeverReusesANumber(t *testing.T) {
+	root := t.TempDir()
+	var ids []string
+	create := func(harness string) {
+		t.Helper()
+		info, err := Create(root, harness)
+		if err != nil {
+			t.Fatal(err)
+		}
+		ids = append(ids, info.ID)
+	}
+	create("claude")  // claude-1
+	create("copilot") // copilot-1
+	create("claude")  // claude-2
+	if err := Remove(root, "claude-1"); err != nil {
+		t.Fatal(err)
+	}
+	create("claude") // must not take the freed claude-1
+	if err := Remove(root, "claude-2"); err != nil {
+		t.Fatal(err)
+	}
+	if err := Remove(root, "claude-3"); err != nil {
+		t.Fatal(err)
+	}
+	create("claude") // nor start again from 1 when none are left
+	create("copilot")
+
+	want := "claude-1,copilot-1,claude-2,claude-3,claude-4,copilot-2"
+	if got := strings.Join(ids, ","); got != want {
+		t.Errorf("IDs given out = %s\nwant            %s", got, want)
+	}
+}
+
+func TestCreateSkipsSessionsOlderThanTheCounter(t *testing.T) {
+	// A state directory from before numbers were recorded has sessions and
+	// no counter file.
+	root := t.TempDir()
+	if err := os.MkdirAll(Dir(root, "claude-1"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	info, err := Create(root, "claude")
+	if err != nil || info.ID != "claude-2" {
+		t.Errorf("Create = %q, %v; want claude-2", info.ID, err)
+	}
+}
+
 func TestLoadReportsLost(t *testing.T) {
 	root := t.TempDir()
 	dead, err := Create(root, "x")
