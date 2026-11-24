@@ -14,22 +14,29 @@ import (
 	"golang.org/x/term"
 
 	"github.com/Selkomark/H2H/internal/config"
+	"github.com/Selkomark/H2H/internal/console"
 	"github.com/Selkomark/H2H/internal/harness"
-	"github.com/Selkomark/H2H/internal/session"
 )
 
 // askTimeout bounds every non-interactive harness run: a harness can finish
 // its work and still not exit.
 const askTimeout = 5 * time.Minute
 
+// manualFlag makes config open the file in the user's editor.
+const manualFlag = "--manual"
+
+// config sets the config up in a conversation with the default harness.
+// "show" prints it, and --manual opens it in the user's editor instead.
 func (e *env) config(ctx context.Context, args []string) error {
 	switch {
-	case len(args) == 0 || (len(args) == 1 && args[0] == "show"):
+	case len(args) == 0:
+		return e.configGuide(ctx)
+	case len(args) == 1 && args[0] == "show":
 		return e.configShow()
-	case len(args) == 1 && args[0] == "edit":
+	case len(args) == 1 && args[0] == manualFlag:
 		return e.configEdit()
 	}
-	return e.configDescribe(ctx, strings.Join(args, " "))
+	return errors.New("usage: config [show | " + manualFlag + "]")
 }
 
 // configText returns the config as it stands: the file, or the shipped
@@ -53,15 +60,16 @@ func (e *env) configShow() error {
 		fmt.Fprintln(e.out, e.st.dim.Render("No "+config.FileName+" yet. These are the defaults H2H ships with.")+"\n")
 	}
 	fmt.Fprint(e.out, text)
-	fmt.Fprintln(e.out, "\n"+e.st.dim.Render("Change it with: ")+e.st.accent.Render("config edit")+e.st.dim.Render(", or ")+e.st.accent.Render("config <what you want changed>"))
+	fmt.Fprintln(e.out, "\n"+e.st.dim.Render("Set it up in a conversation with: ")+e.st.accent.Render("config")+e.st.dim.Render(", or edit it yourself with: ")+e.st.accent.Render("config "+manualFlag))
 	return nil
 }
 
 // configEdit opens the config in the user's editor, on a copy, and applies
-// the result only if it is valid and the user confirms.
+// the result only if it is valid and the user confirms. A project without
+// a config starts from the one H2H ships with.
 func (e *env) configEdit() error {
 	if !term.IsTerminal(int(e.in.Fd())) {
-		return errors.New("config edit needs a terminal")
+		return errors.New("config " + manualFlag + " needs a terminal")
 	}
 	current, exists, err := e.configText()
 	if err != nil {
@@ -85,22 +93,43 @@ func (e *env) configEdit() error {
 			}
 			continue
 		}
-		return e.configApply(current, exists, draft)
+		applied, err := e.configApply(current, exists, draft)
+		if err != nil || applied || !e.ui.Confirm("Edit it again?") {
+			return err
+		}
+		// Turned down, and not done: back to the editor with the draft.
 	}
 }
 
-// configDescribe asks the default harness to rewrite the config to match a
-// description. The proposal goes through the same validation and
-// confirmation as a manual edit.
-func (e *env) configDescribe(ctx context.Context, description string) error {
+// configMarker is the line the harness puts before the finished config,
+// which is how H2H tells the file from a question.
+const configMarker = "H2H-CONFIG-FOLLOWS"
+
+// doneCommand is what the user types to end the conversation and see the
+// result. doneMessage is what the harness is told when they do.
+const (
+	doneCommand = "/done"
+	doneMessage = "DONE. The user is finished and wants to see the result. Send the marker line and the file now."
+)
+
+// maxInvalidConfigs is how often the harness may send a config that does
+// not validate before the conversation is given up.
+const maxInvalidConfigs = 2
+
+// configGuide sets the config up in a conversation: the default harness
+// asks the user how they want their team arranged, and once the user says
+// they are done it writes the file. The result goes through the same
+// validation and confirmation as a manual edit, then doctor checks it and
+// the map shows what was set up.
+func (e *env) configGuide(ctx context.Context) error {
 	current, exists, err := e.configText()
 	if err != nil {
 		return err
 	}
-	// The harness comes from the shipped defaults if the file is broken, so
-	// a bad config can still be repaired in words.
-	cfg, err := config.Load(e.root)
-	if err != nil {
+	// The harness comes from the shipped defaults if the file is broken,
+	// so a bad config can still be repaired in a conversation.
+	cfg, loadErr := config.Load(e.root)
+	if loadErr != nil {
 		if cfg, err = config.Parse(config.Template()); err != nil {
 			return err
 		}
@@ -109,53 +138,226 @@ func (e *env) configDescribe(ctx context.Context, description string) error {
 	if err != nil {
 		return err
 	}
-	prompt := "You are editing the configuration file of H2H, a tool that supervises coding-agent harness sessions. " +
-		"Reply with the complete new contents of the file and nothing else: no explanation and no code fence. " +
-		"Keep the existing comments. Change only what the request asks for. Do not read or change any file.\n\n" +
-		"The file is TOML. The comments in it explain each setting.\n\n" +
-		"Current file:\n\n" + current + "\n\nRequested change: " + description + "\n"
+	switch _, lookErr := exec.LookPath(h.Command); {
+	case lookErr != nil:
+		return fmt.Errorf("the default harness %s is not installed, so it cannot hold this conversation; install it with: install %s, or edit the config yourself with: config %s", name, name, manualFlag)
+	case len(h.AskArgs) == 0:
+		return fmt.Errorf("the default harness %s has no ask_args, so it cannot hold this conversation; edit the config yourself with: config %s", name, manualFlag)
+	}
 
-	fmt.Fprintln(e.out, e.st.dim.Render("Asking "+name+" for a new config..."))
-	ctx, cancel := context.WithTimeout(ctx, askTimeout)
-	defer cancel()
-	var reply, errOut bytes.Buffer
-	if err := harness.Ask(ctx, h, e.environ, e.root, prompt, &reply, &errOut); err != nil {
-		return fmt.Errorf("%s could not answer: %w\n%s", name, err, strings.TrimSpace(errOut.String()))
+	// The box is closed while the user looks at a proposal, and opened
+	// again if they turn it down and want to keep editing.
+	var chat console.Chat
+	open := false
+	openChat := func() {
+		if !open {
+			chat = e.ui.Chat("Set up H2H with " + name)
+			open = true
+		}
 	}
-	proposal := unfence(reply.String())
-	if _, err := config.Parse(proposal); err != nil {
-		return fmt.Errorf("%s proposed a config that is not valid (%v); nothing was changed", name, err)
+	closeChat := func() {
+		if open {
+			chat.Close()
+			open = false
+		}
 	}
-	if proposal == current && exists {
-		fmt.Fprintln(e.out, "No changes proposed.")
+	openChat()
+	defer closeChat()
+
+	// First what is there, as a picture, so nobody has to read a
+	// description of it: the map and a table of the domains. Then how to
+	// reply, which stays the same through the conversation.
+	if loadErr == nil {
+		chat.Show(func(width int) string {
+			return e.st.title.Render("The setup as it is now") + "\n\n" + setupPicture(cfg, e.st)(width)
+		})
+	}
+	chat.Show(func(int) string {
+		return e.st.dim.Render("Say in plain words what to set up or change, or ask for a suggestion.") + "\n" +
+			e.st.dim.Render("When you are happy, type ") + e.st.accent.Render(doneCommand) +
+			e.st.dim.Render(": you are shown the changes and a map of the result, and nothing is written before you apply it.")
+	})
+
+	base := guidePrompt(current, exists, loadErr, e.installedHarnesses(cfg))
+	var turns []string
+	invalid := 0
+	for {
+		chat.Wait(name + " is thinking")
+		actx, cancel := context.WithTimeout(ctx, askTimeout)
+		var reply, errOut bytes.Buffer
+		err := harness.Ask(actx, h, e.environ, e.root, base+conversation(turns), &reply, &errOut)
+		cancel()
+		switch {
+		case ctx.Err() != nil:
+			closeChat()
+			fmt.Fprintln(e.out, "Setup cancelled. The config is unchanged.")
+			return nil
+		case err != nil:
+			// A harness run this way prints its reason as its answer.
+			return couldNotAnswer(name, h, err, errOut.String()+"\n"+reply.String())
+		}
+
+		said, file, done := strings.Cut(reply.String(), configMarker)
+		if !done {
+			turns = append(turns, "You: "+strings.TrimSpace(said))
+			chat.Say(said)
+			answer, ok := chat.Ask()
+			if !ok {
+				closeChat()
+				fmt.Fprintln(e.out, "Setup cancelled. The config is unchanged.")
+				return nil
+			}
+			// The one reply H2H reads itself, so that "finished" is never
+			// a matter of how the harness takes a "yes" or an "ok".
+			if strings.EqualFold(strings.TrimSpace(answer), doneCommand) {
+				answer = doneMessage
+			}
+			turns = append(turns, "User: "+answer)
+			continue
+		}
+
+		proposal := unfence(file)
+		if _, err := config.Parse(proposal); err != nil {
+			if invalid++; invalid > maxInvalidConfigs {
+				return fmt.Errorf("%s kept writing a config that is not valid (%v); nothing was changed. Edit it yourself with: config %s", name, err, manualFlag)
+			}
+			chat.Say(fmt.Sprintf("That config was not valid (%v). Asking %s to correct it.", err, name))
+			turns = append(turns, "You: "+strings.TrimSpace(reply.String()),
+				fmt.Sprintf("H2H: that file is not valid: %v. Correct it, and send the marker line and the complete file again.", err))
+			continue
+		}
+
+		closeChat()
+		if proposal != current || !exists {
+			applied, err := e.configApply(current, exists, proposal)
+			if err != nil {
+				return err
+			}
+			if !applied {
+				// Turned down is not the end: back to the conversation,
+				// to say what should be different.
+				openChat()
+				chat.Say("Not applied; the config is unchanged. What should be different? Leave with Esc to stop here.")
+				answer, ok := chat.Ask()
+				if !ok {
+					closeChat()
+					fmt.Fprintln(e.out, "Setup stopped. The config is unchanged.")
+					return nil
+				}
+				turns = append(turns, "You: "+strings.TrimSpace(reply.String()),
+					"H2H: the user looked at that config and the map of it, and did not apply it.", "User: "+answer)
+				continue
+			}
+		} else {
+			fmt.Fprintln(e.out, "The config already says that. Nothing was changed.")
+		}
+		if err := e.doctor(ctx, nil); err != nil {
+			return fmt.Errorf("the config was saved, but %w", err)
+		}
+		fmt.Fprintln(e.out)
+		if err := e.mapCmd(ctx, nil); err != nil {
+			return err
+		}
+		fmt.Fprintln(e.out, "\n"+e.st.good.Render("H2H is now configured."))
 		return nil
 	}
-	return e.configApply(current, exists, proposal)
+}
+
+// installedHarnesses says which of the configured harnesses are on PATH,
+// so the conversation does not hand a domain to one that cannot start.
+func (e *env) installedHarnesses(cfg config.Config) string {
+	var lines []string
+	for _, name := range cfg.Names() {
+		state := "installed"
+		if _, err := exec.LookPath(cfg.Harnesses[name].Command); err != nil {
+			state = "not installed"
+		}
+		lines = append(lines, "- "+name+": "+state)
+	}
+	return strings.Join(lines, "\n")
+}
+
+// guidePrompt is what the harness is told before the conversation starts:
+// what H2H is for, the config as it stands, its schema, and how to hold
+// the conversation.
+func guidePrompt(current string, exists bool, broken error, installed string) string {
+	state := "The project has no config file yet. This is the one H2H ships with, which is in force until one is written:"
+	switch {
+	case broken != nil:
+		state = "The project's config file is not valid (" + broken.Error() + "). This is the file as it stands:"
+	case exists:
+		state = "This is the project's config file as it stands:"
+	}
+	return "You are setting up H2H for the project in the current directory, in a conversation with its user.\n\n" +
+		"What H2H is for: it lets complete coding-agent harnesses (such as Claude Code, Copilot CLI and Codex CLI) work as a team. " +
+		"Each harness owns a domain of responsibility, for example the web frontend, the backend, or end-to-end testing, " +
+		"works in its own session and workspace, and can be told which sub-agent roles to use as specialists. " +
+		"Domains can depend on each other, so one waits for the work of another, and a domain without dependencies runs in parallel. " +
+		"One harness is the default: it starts when none is named and answers the user in the H2H console. " +
+		"All of this is declared in one TOML file, " + config.FileName + ", which is what you are writing.\n\n" +
+		state + "\n\n" + current + "\n\n" +
+		"The comments in that file are the schema: they explain every setting H2H accepts. Settings not described there are rejected. " +
+		"Keep the comments, and keep the settings of the harnesses that H2H ships with unless the user asks to change them.\n\n" +
+		"Which of the configured harnesses are installed on this machine:\n" + installed + "\n\n" +
+		"How to hold the conversation:\n" +
+		"- You see the whole conversation so far each time, and reply with your next message only.\n" +
+		"- The user has just been shown the setup as it stands, as a map and a table, and how to reply. " +
+		"Do not explain what H2H is and do not list the setup again. " +
+		"Your first message is one or two sentences and a single question: what they want to set up or change. " +
+		"Mention something only if it looks wrong, such as a path in the config that does not exist in the project.\n" +
+		"- Ask one question at a time and keep each message short. Find out which harness should be the default, " +
+		"which domains of responsibility the project should have, which harness owns each, which paths each covers, " +
+		"which sub-agent roles each should use, and which domains depend on which.\n" +
+		"- You may read the project's files to suggest domains that fit it. Do not change any file and do not run anything that changes the project.\n" +
+		"- Do not give a domain to a harness that is not installed without telling the user.\n" +
+		"- Write plain text for a terminal: no Markdown, no headings, no code fences.\n" +
+		"- Do not summarise the setup in words, and do not ask the user in words to confirm it. " +
+		"When the user says they are done, or their message starts with DONE, reply with a line containing exactly " + configMarker +
+		" and after it the complete new contents of " + config.FileName + ", and nothing else. " +
+		"H2H then shows the user the changes and a map of the result, and asks them to apply it or go back to you: that is the confirmation.\n" +
+		"- If a reply does not tell you what to do, such as a bare \"yes\" or \"ok\" that answers no question of yours, do not guess what it agrees to. " +
+		"Ask them to either say what should change or type " + doneCommand + " to see the result.\n" +
+		"- After a change is asked for and you have no question left, say in one sentence what you changed and that they can ask for more or type " + doneCommand + ".\n"
+}
+
+// conversation is the exchange so far, as the harness is shown it.
+func conversation(turns []string) string {
+	if len(turns) == 0 {
+		return "\nThe conversation has not started. Send your first message.\n"
+	}
+	return "\nThe conversation so far:\n\n" + strings.Join(turns, "\n\n") + "\n\nSend your next message.\n"
 }
 
 // configApply is the plan-and-apply step: show the difference, ask, write.
-func (e *env) configApply(current string, exists bool, next string) error {
+// It reports whether the config was written.
+func (e *env) configApply(current string, exists bool, next string) (bool, error) {
+	// Two things and no more: the lines that change, and then, last and
+	// so right above the question, the map of what the config sets up.
+	// The map is what the user checks their intent against.
 	if exists {
 		fmt.Fprintf(e.out, "%s\n\n%s\n", e.st.title.Render("Changes to "+config.FileName), e.st.diff(lineDiff(current, next)))
 	} else if next == current {
-		fmt.Fprintf(e.out, "This creates %s with the shipped defaults.\n", config.FileName)
+		fmt.Fprintf(e.out, "This creates %s with the shipped defaults.\n\n", config.FileName)
 	} else {
 		fmt.Fprintf(e.out, "%s\n\n%s\n", e.st.title.Render("This creates "+config.FileName+". Compared with the shipped defaults:"), e.st.diff(lineDiff(current, next)))
 	}
-	if !e.ui.Confirm("Apply?") {
+	if cfg, err := config.Parse(next); err == nil {
+		fmt.Fprintf(e.out, "%s\n\n%s\n", e.st.title.Render("The setup with this config"), proposedMap(cfg, e.st))
+	}
+	if !e.ui.Confirm("Apply this config to " + config.FileName + "?") {
 		fmt.Fprintln(e.out, "Not applied. The config is unchanged.")
-		return nil
+		return false, nil
 	}
 	path := config.Path(e.root)
 	tmp := fmt.Sprintf("%s.%d.tmp", path, os.Getpid())
 	if err := os.WriteFile(tmp, []byte(next), 0o644); err != nil {
-		return err
+		return false, err
 	}
 	if err := os.Rename(tmp, path); err != nil {
-		return err
+		return false, err
 	}
-	fmt.Fprintln(e.out, e.st.good.Render("Applied.")+" Running sessions keep the settings they started with.")
-	return nil
+	fmt.Fprintln(e.out, e.st.good.Render("Applied.")+" Harnesses that are running keep the settings they started with.")
+	return true, nil
 }
 
 // editText lets the user edit text in their own editor and returns the result.
@@ -224,51 +426,4 @@ func unfence(reply string) string {
 		lines = lines[start:]
 	}
 	return strings.TrimSpace(strings.Join(lines, "\n")) + "\n"
-}
-
-// ask sends text typed into the console to the default harness and prints
-// its answer.
-func (e *env) ask(ctx context.Context, text string) error {
-	cfg, err := config.Load(e.root)
-	if err != nil {
-		return err
-	}
-	name, h, err := cfg.Lookup("")
-	if err != nil {
-		return err
-	}
-	infos, err := session.List(e.root)
-	if err != nil {
-		return err
-	}
-	// The harness gets the same views the user has, without styling.
-	state := "There are no sessions.\n"
-	if len(infos) > 0 {
-		state = sessionTable(e.root, infos, plainStyles())
-	}
-	wiring := configMap(e.root, cfg, infos, plainStyles())
-	if roles := cfg.RolesXML(""); roles != "" {
-		wiring += "\nThe domains in detail:\n" + roles
-	}
-	var help strings.Builder
-	helper := *e
-	helper.out, helper.st = &help, plainStyles()
-	_ = helper.help(ctx, nil)
-
-	prompt := "You are answering a message typed into the console of H2H, a tool that supervises coding-agent harness sessions " +
-		"for the project in the current directory. Answer briefly in plain text. Do not change any file. " +
-		"If the user wants something a console command does, tell them the command.\n\n" +
-		"How the config is wired up (the /map command):\n" + wiring + "\n" +
-		"Sessions right now:\n" + state + "\n" + help.String() + "\nMessage: " + text + "\n"
-
-	fmt.Fprintln(e.out, e.st.dim.Render("Asking "+name+"..."))
-	ctx, cancel := context.WithTimeout(ctx, askTimeout)
-	defer cancel()
-	if err := harness.Ask(ctx, h, e.environ, e.root, prompt, e.out, e.errw); err != nil {
-		if ctx.Err() != nil {
-			return fmt.Errorf("%s was interrupted", name)
-		}
-		return fmt.Errorf("%s could not answer: %w", name, err)
-	}
-	return nil
 }

@@ -16,6 +16,8 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -93,8 +95,21 @@ func Run(root, id string) error {
 		return fail(err)
 	}
 
-	args := append([]string{}, h.Args...)
-	extraEnv := []string{"H2H_SESSION=" + id}
+	// The harness answers a delegated request with h2h-report, a small
+	// program on its PATH that calls this binary. It has a name of its
+	// own so that a harness can be allowed to run it and nothing else.
+	shimDir, err := reportShim(root, id)
+	if err != nil {
+		return fail(err)
+	}
+	args := append(append([]string{}, h.Args...), h.ReportArgs...)
+	for _, a := range h.PermitArgs {
+		// The path goes inside a quoted string of JSON or TOML, so what
+		// those would read as an escape is escaped.
+		quoted := strings.Trim(strconv.Quote(PermitPath(root, id)), `"`)
+		args = append(args, strings.ReplaceAll(a, config.PermitPlaceholder, quoted))
+	}
+	extraEnv := []string{"H2H_SESSION=" + id, "H2H_ROOT=" + root, "PATH=" + shimDir + string(os.PathListSeparator) + os.Getenv("PATH")}
 	if info.Domain != "" && h.PassesRoles() {
 		roles := cfg.RolesXML(info.Domain)
 		// The roles file lives in the session's state directory, never in
@@ -271,4 +286,49 @@ func forwardStop(pid int, exited <-chan struct{}) {
 func stop(pid int) {
 	_ = syscall.Kill(-pid, syscall.SIGTERM)
 	time.AfterFunc(stopGrace, func() { _ = syscall.Kill(-pid, syscall.SIGKILL) })
+}
+
+// ReportCommand is the name of the program a harness reports with.
+const ReportCommand = "h2h-report"
+
+// ReportPath is where a session's ReportCommand is, for a harness whose
+// shell does not keep the PATH it was started with.
+func ReportPath(root, id string) string {
+	return filepath.Join(session.Dir(root, id), "bin", ReportCommand)
+}
+
+// reportShim writes ReportCommand into the session's state directory and
+// returns the directory, to be put on the harness's PATH. The program
+// names its session and project itself, and does not rely on the
+// environment: a harness may run its commands in a fresh shell.
+func reportShim(root, id string) (string, error) {
+	exe, err := os.Executable()
+	if err != nil {
+		return "", err
+	}
+	path := ReportPath(root, id)
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return "", err
+	}
+	for name, command := range map[string]string{ReportCommand: "report", PermitCommand: "permit"} {
+		script := "#!/bin/sh\nH2H_ROOT=" + shellQuote(root) + " H2H_SESSION=" + shellQuote(id) + " exec " + shellQuote(exe) + " " + command + " \"$@\"\n"
+		if err := os.WriteFile(filepath.Join(filepath.Dir(path), name), []byte(script), 0o700); err != nil {
+			return "", err
+		}
+	}
+	return filepath.Dir(path), nil
+}
+
+// PermitCommand is the name of the program a harness's permission hook
+// runs to ask H2H.
+const PermitCommand = "h2h-permit"
+
+// PermitPath is where a session's PermitCommand is.
+func PermitPath(root, id string) string {
+	return filepath.Join(session.Dir(root, id), "bin", PermitCommand)
+}
+
+// shellQuote quotes s as one word for sh.
+func shellQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }

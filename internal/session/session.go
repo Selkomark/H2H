@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strings"
 	"syscall"
 	"time"
 )
@@ -79,6 +80,21 @@ func Init(root string) error {
 		return os.WriteFile(ignore, []byte("*\n"), 0o600)
 	}
 	return nil
+}
+
+// Writable reports whether H2H can keep its state in the project. It
+// leaves nothing behind, and does not create the state directory.
+func Writable(root string) error {
+	dir := StateDir(root)
+	if _, err := os.Stat(dir); errors.Is(err, fs.ErrNotExist) {
+		dir = root // where the state directory would be created
+	}
+	f, err := os.CreateTemp(dir, ".h2h-check-*")
+	if err != nil {
+		return err
+	}
+	f.Close()
+	return os.Remove(f.Name())
 }
 
 // Create reserves a new session ID for a harness and writes its first record.
@@ -220,10 +236,14 @@ func List(root string) ([]Info, error) {
 	return infos, nil
 }
 
-// Remove deletes a session's record and logs.
+// Remove deletes a session's record, logs and reports.
 func Remove(root, id string) error {
 	if !ValidID(id) {
 		return fmt.Errorf("%q is not a session ID", id)
+	}
+	if sock, err := SocketPath(root, id); err == nil {
+		_ = os.RemoveAll(strings.TrimSuffix(sock, ".sock") + ".reports")
+		_ = os.RemoveAll(strings.TrimSuffix(sock, ".sock") + ".permits")
 	}
 	return os.RemoveAll(Dir(root, id))
 }
@@ -252,6 +272,80 @@ func SocketPath(root, id string) (string, error) {
 	}
 	sum := sha256.Sum256([]byte(root))
 	return filepath.Join(dir, fmt.Sprintf("%x-%s.sock", sum[:6], id)), nil
+}
+
+// ReportDir returns the directory in which the harness of a session
+// leaves its reports, creating it if needed. It sits beside the session's
+// socket, in the per-user directory under /tmp, and not in the state
+// directory: a harness that confines its own commands still lets them
+// write under /tmp, and may not let them write elsewhere in the project.
+func ReportDir(root, id string) (string, error) {
+	sock, err := SocketPath(root, id)
+	if err != nil {
+		return "", err
+	}
+	dir := strings.TrimSuffix(sock, ".sock") + ".reports"
+	if err := os.Mkdir(dir, 0o700); err != nil && !errors.Is(err, fs.ErrExist) {
+		return "", err
+	}
+	return dir, nil
+}
+
+// ReportPath is the file that holds the report to request number n.
+func ReportPath(dir string, n int) string { return filepath.Join(dir, fmt.Sprintf("%d.txt", n)) }
+
+// NewRequest reserves the next request number of a session, so that the
+// report to it cannot be mistaken for the report to another.
+func NewRequest(dir string) (int, error) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return 0, err
+	}
+	last := 0
+	for _, e := range entries {
+		var n int
+		if _, err := fmt.Sscanf(e.Name(), "%d.", &n); err == nil && n > last {
+			last = n
+		}
+	}
+	for n := last + 1; ; n++ {
+		f, err := os.OpenFile(filepath.Join(dir, fmt.Sprintf("%d.asked", n)), os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+		if errors.Is(err, fs.ErrExist) {
+			continue
+		}
+		if err != nil {
+			return 0, err
+		}
+		return n, f.Close()
+	}
+}
+
+// Report stores the report to request n, atomically, so a reader never
+// sees half of it. A request that was not made is refused.
+func Report(dir string, n int, text string) error {
+	if _, err := os.Stat(filepath.Join(dir, fmt.Sprintf("%d.asked", n))); err != nil {
+		return fmt.Errorf("there is no request %d to report on", n)
+	}
+	tmp := fmt.Sprintf("%s.%d.tmp", ReportPath(dir, n), os.Getpid())
+	if err := os.WriteFile(tmp, []byte(text), 0o600); err != nil {
+		return err
+	}
+	return os.Rename(tmp, ReportPath(dir, n))
+}
+
+// PermitDir returns the directory in which a session's permission
+// requests wait for their answers, creating it if needed. Like ReportDir
+// it sits beside the session's socket.
+func PermitDir(root, id string) (string, error) {
+	sock, err := SocketPath(root, id)
+	if err != nil {
+		return "", err
+	}
+	dir := strings.TrimSuffix(sock, ".sock") + ".permits"
+	if err := os.Mkdir(dir, 0o700); err != nil && !errors.Is(err, fs.ErrExist) {
+		return "", err
+	}
+	return dir, nil
 }
 
 func alive(pid int) bool {

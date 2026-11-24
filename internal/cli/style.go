@@ -26,6 +26,8 @@ type styles struct {
 var (
 	// accentColor is a soft green, for the text the user can act on.
 	accentColor = lipgloss.AdaptiveColor{Light: "#2F7D4F", Dark: "#A3D9A5"}
+	// hoverColor is the faint background of the message under the mouse.
+	hoverColor = lipgloss.AdaptiveColor{Light: "#E6EFE8", Dark: "#26302A"}
 	// frameColor is for borders and rules: white on a dark terminal.
 	frameColor = lipgloss.AdaptiveColor{Light: "#3A3A3A", Dark: "#FFFFFF"}
 )

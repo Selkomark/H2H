@@ -5,9 +5,13 @@ package harness
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"os/exec"
+	"regexp"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/Selkomark/H2H/internal/config"
 )
@@ -60,6 +64,91 @@ func Ask(ctx context.Context, h config.Harness, environ []string, dir, prompt st
 	cmd.Stdout = stdout
 	cmd.Stderr = stderr
 	return cmd.Run()
+}
+
+// versionWait is how long Version waits for output after the harness exits,
+// in case something it started still holds the pipe.
+const versionWait = time.Second
+
+// Version runs the harness with its version_args and returns the first
+// line it prints. An error means the program is installed but does not run.
+func Version(ctx context.Context, h config.Harness, environ []string) (string, error) {
+	if len(h.VersionArgs) == 0 {
+		return "", errors.New("this harness has no version_args in the config")
+	}
+	cmd := exec.CommandContext(ctx, h.Command, h.VersionArgs...)
+	cmd.Env = Env(h, environ)
+	cmd.WaitDelay = versionWait
+	out, err := cmd.CombinedOutput()
+	line, _, _ := strings.Cut(strings.TrimSpace(string(out)), "\n")
+	line = strings.TrimSpace(line)
+	if err != nil {
+		if line != "" {
+			return "", fmt.Errorf("%w: %s", err, line)
+		}
+		return "", err
+	}
+	return line, nil
+}
+
+// Latest runs the harness's latest_command and returns the first line it
+// prints: the newest version there is to install.
+func Latest(ctx context.Context, h config.Harness, environ []string) (string, error) {
+	if len(h.LatestCommand) == 0 {
+		return "", errors.New("this harness has no latest_command in the config")
+	}
+	cmd := exec.CommandContext(ctx, h.LatestCommand[0], h.LatestCommand[1:]...)
+	// The user's own environment: this is their package manager, which
+	// needs its settings, and not the harness.
+	cmd.Env = environ
+	cmd.WaitDelay = versionWait
+	out, err := cmd.Output()
+	if err != nil {
+		return "", fmt.Errorf("%s: %w", h.LatestCommand[0], err)
+	}
+	line, _, _ := strings.Cut(strings.TrimSpace(string(out)), "\n")
+	return strings.TrimSpace(line), nil
+}
+
+// Install runs the harness's install_command, which installs its latest
+// version or updates it. The caller bounds the run with ctx.
+func Install(ctx context.Context, h config.Harness, environ []string, stdout, stderr io.Writer) error {
+	if len(h.InstallCommand) == 0 {
+		return errors.New("this harness has no install_command in the config")
+	}
+	cmd := exec.CommandContext(ctx, h.InstallCommand[0], h.InstallCommand[1:]...)
+	cmd.Env = environ // the user's package manager, as in Latest
+	cmd.Stdout, cmd.Stderr = stdout, stderr
+	cmd.WaitDelay = versionWait
+	return cmd.Run()
+}
+
+var versionRE = regexp.MustCompile(`\d+(\.\d+)+`)
+
+// Number picks the version number out of text such as "tool 1.2.3 (beta)".
+// It returns "" when there is none.
+func Number(text string) string { return versionRE.FindString(text) }
+
+// Newer reports whether version a is later than version b, comparing their
+// numbers part by part. It is false when either has no number.
+func Newer(a, b string) bool {
+	pa, pb := strings.Split(Number(a), "."), strings.Split(Number(b), ".")
+	if pa[0] == "" || pb[0] == "" {
+		return false
+	}
+	for i := 0; i < max(len(pa), len(pb)); i++ {
+		var x, y int
+		if i < len(pa) {
+			x, _ = strconv.Atoi(pa[i])
+		}
+		if i < len(pb) {
+			y, _ = strconv.Atoi(pb[i])
+		}
+		if x != y {
+			return x > y
+		}
+	}
+	return false
 }
 
 // RolesFile is the name of the file a harness reads its role from when it

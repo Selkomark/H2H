@@ -167,3 +167,17 @@ func TestKeeperRecordsStartFailure(t *testing.T) {
 		t.Errorf("after a failed start: State = %q, Error = %q; want exited with a reason", got.State, got.Error)
 	}
 }
+
+func TestCheck(t *testing.T) {
+	root := t.TempDir()
+	if err := Check(root); err != nil {
+		t.Fatalf("Check: %v", err)
+	}
+	sock, err := session.SocketPath(root, checkID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(sock); err == nil {
+		t.Errorf("Check left its socket behind at %s", sock)
+	}
+}

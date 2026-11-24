@@ -111,6 +111,50 @@ func TestContextRejects(t *testing.T) {
 
 // Every shipped harness must be able to receive its role. See the
 // harness-parity skill.
+func TestTrustSettings(t *testing.T) {
+	base := "default_harness = \"a\"\n[harness.a]\ncommand = \"a\"\n"
+	tests := []struct {
+		name, settings string
+		wantErr        bool
+	}{
+		{"none", "", false},
+		{"complete", "trust_file = \"~/.a.json\"\ntrust_key = [\"projects\", \"{project}\"]\ntrust_value = \"true\"\n", false},
+		{"placeholder in the value", "trust_file = \"~/.a.toml\"\ntrust_key = [\"folders\"]\ntrust_value = \"{project}\"\n", false},
+		{"only the file", "trust_file = \"~/.a.json\"\n", true},
+		{"unknown format", "trust_file = \"~/.a.yaml\"\ntrust_key = [\"{project}\"]\ntrust_value = \"true\"\n", true},
+		{"no placeholder", "trust_file = \"~/.a.json\"\ntrust_key = [\"trusted\"]\ntrust_value = \"true\"\n", true},
+	}
+	for _, tt := range tests {
+		if _, err := Parse(base + tt.settings); (err != nil) != tt.wantErr {
+			t.Errorf("%s: Parse error = %v, want error %v", tt.name, err, tt.wantErr)
+		}
+	}
+}
+
+func TestShippedHarnessesReportVersion(t *testing.T) {
+	c, err := Parse(Template())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range c.Names() {
+		if len(c.Harnesses[name].VersionArgs) == 0 {
+			t.Errorf("shipped harness %q has no version_args, so doctor cannot check that it runs", name)
+		}
+		if len(c.Harnesses[name].InstallCommand) == 0 || len(c.Harnesses[name].LatestCommand) == 0 {
+			t.Errorf("shipped harness %q lacks install_command or latest_command, so install cannot install or update it", name)
+		}
+		if !c.Harnesses[name].Streams() {
+			t.Errorf("shipped harness %q has no stream_args, so its answers cannot be shown as they arrive", name)
+		}
+		if !c.Harnesses[name].ChecksTrust() {
+			t.Errorf("shipped harness %q has no trust settings, so doctor cannot check its permission", name)
+		}
+		if len(c.Harnesses[name].AskArgs) == 0 {
+			t.Errorf("shipped harness %q has no ask_args, so doctor cannot check its login", name)
+		}
+	}
+}
+
 func TestShippedHarnessesPassRoles(t *testing.T) {
 	c, err := Parse(Template())
 	if err != nil {

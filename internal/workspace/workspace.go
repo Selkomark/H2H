@@ -21,6 +21,36 @@ func Root(ctx context.Context, dir string) (string, error) {
 	return strings.TrimSpace(out), nil
 }
 
+// The oldest git that has every worktree command H2H uses.
+const minGitMajor, minGitMinor = 2, 17
+
+// GitVersion returns the version of the installed git, and an error when
+// git is missing or too old to manage worktrees the way H2H does.
+func GitVersion(ctx context.Context) (string, error) {
+	out, err := exec.CommandContext(ctx, "git", "version").Output()
+	if err != nil {
+		return "", errors.New("git is not installed or not on PATH")
+	}
+	version := strings.TrimPrefix(strings.TrimSpace(string(out)), "git version ")
+	var major, minor int
+	if _, err := fmt.Sscanf(version, "%d.%d", &major, &minor); err != nil {
+		return version, nil // an unusual version string is not a reason to refuse
+	}
+	if major < minGitMajor || (major == minGitMajor && minor < minGitMinor) {
+		return version, fmt.Errorf("git %s is too old; H2H needs %d.%d or later", version, minGitMajor, minGitMinor)
+	}
+	return version, nil
+}
+
+// Ready reports whether a workspace can be created for the project. A
+// workspace is a copy of the current commit, so there has to be one.
+func Ready(ctx context.Context, root string) error {
+	if _, err := git(ctx, root, "rev-parse", "--verify", "--quiet", "HEAD^{commit}"); err != nil {
+		return errors.New("the repository has no commit yet")
+	}
+	return nil
+}
+
 // Path is where the workspace of a session lives.
 func Path(root, id string) string {
 	return filepath.Join(root, ".h2h", "workspaces", id)

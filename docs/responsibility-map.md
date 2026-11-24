@@ -88,11 +88,33 @@ Copilot has no option for instructions on its command line except a first prompt
 
 | View | What it shows | How |
 |---|---|---|
-| `/map` in the console, `h2h map` in scripts | Domains with their owner, paths, sub-agents and sessions; the flow (`backend + ui → e2e`, `finance independent`); and each harness with how it starts and whether it can be given a role | An indented tree. Built |
+| The Map tab of the console, opened with `/map` | The domains as boxes, each with its owner, its number of sub-agents and what is running for it, and an arrow from a domain to each domain that waits for its work. The arrow keys or a click select a box, and Enter, or a second click, opens a box about that domain. It opens on what the domain is for and who does what in it: a sentence naming the harness in charge, and a table giving each sub-agent its job. A "Show more" button, or `m`, opens a second table under it that answers, in plain words, the questions a user has about the domain: is it running, which files it works on, when it can start, where its work goes, how its harness is started, whether it knows its role, and what happens when it needs permission | A graph drawn in the terminal. Built |
+| `h2h map` in scripts | The same drawing, with each domain's setup printed under it | Text. Built |
 | Later: `/map --mermaid` | The same map as Mermaid text, for GitHub or a browser | Not built |
 | `h2h serve` | The full mindmap: ownership radiating from H2H, handoffs as arrows, live status colours, click a node to open its session or pending approval | An interactive graph in the browser |
 
-A terminal cannot draw a true mindmap. A tree covers "who owns what", which is most of what the user asks, and the web view carries the rest.
+### How the graph is drawn
+
+The drawing reads left to right, as a Mermaid flowchart does, with less in it: it shows the flow of work and who owns each step, and leaves the detail to the box that opens on a domain.
+
+```
+╭─────────────╮     ╭──────────────╮     ╭───────────╮
+│ infra       │     │ development  │     │ e2e       │
+│ codex       │────▶│ claude       │────▶│ codex-low │
+│ 1 sub-agent │     │ 2 sub-agents │     ╰───────────╯
+╰─────────────╯     ╰──────────────╯
+```
+
+- **Columns are steps of the flow.** A domain stands one column to the right of the last domain it waits for, so every arrow points right, and domains that wait for nothing start on the left.
+- **An arrow that skips a column passes through it** at a place of its own, clear of that column's boxes.
+- **Each domain's arrows leave by a lane of their own** in the gap to the next column. Where two lanes meet, the lines are drawn joined, which is the limit of what a grid of characters can show; selecting a domain draws it and the arrows into and out of it in the accent colour, which is how its lineage is read in a busy graph.
+- **A graph wider or taller than the page is cut off.** Scrolling a graph is not built.
+
+The config's own check refuses domains that wait for each other in a circle, so the graph always has a left and a right.
+
+The tree that `/map` drew before is still what the default harness is given as context, because a model reads a tree of text more reliably than a drawing.
+
+A terminal cannot draw a true mindmap. The graph covers the flow and the ownership, which is most of what the user asks, and the web view carries the rest: the same nodes, edges and details, drawn by a browser.
 
 ## Libraries
 

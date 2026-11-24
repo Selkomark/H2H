@@ -27,7 +27,7 @@ func (e *env) ps(_ context.Context, _ []string) error {
 		return err
 	}
 	if len(infos) == 0 {
-		fmt.Fprintln(e.out, e.st.dim.Render("No sessions. Start one with: ")+e.st.accent.Render("start [harness]"))
+		fmt.Fprintln(e.out, e.st.dim.Render("No harnesses running. Start one with: ")+e.st.accent.Render("start [harness]"))
 		return nil
 	}
 	fmt.Fprint(e.out, sessionTable(e.root, infos, e.st))
@@ -51,7 +51,7 @@ func sessionLines(root string, infos []session.Info, st styles) []string {
 		}
 		rows = append(rows, []string{i.ID, i.Harness, stateText(i), age(time.Since(i.Started)), ws})
 	}
-	return table([]string{"SESSION", "HARNESS", "STATE", "AGE", "WORKSPACE"}, rows, st.dim,
+	return table([]string{"ID", "HARNESS", "STATE", "AGE", "WORKSPACE"}, rows, st.dim,
 		func(row, col int) lipgloss.Style {
 			switch col {
 			case 0:
@@ -141,16 +141,19 @@ func (e *env) start(ctx context.Context, args []string) error {
 		fmt.Fprintln(e.out, e.st.warn.Render("Note:")+" harness "+name+" has no context_args or context_env in the config, so the session was not told its role in "+domain+".")
 	}
 	fmt.Fprintf(e.out, "%s %s. Open it with: %s\n", e.st.good.Render("Started"), info.ID, e.st.accent.Render("attach "+info.ID))
+	if !h.AsksH2H() {
+		fmt.Fprintln(e.out, e.st.dim.Render("When "+name+" needs permission it stops at a prompt in its own terminal, which H2H cannot answer for it; attach to answer."))
+	}
 	return nil
 }
 
 func (e *env) attach(_ context.Context, args []string) error {
-	info, err := e.pick(args, "attach [session]")
+	info, err := e.pick(args, "attach [id]")
 	if err != nil {
 		return err
 	}
 	if info.State != session.Running {
-		return fmt.Errorf("session %s is %s, not running; see its output with: logs %s", info.ID, info.State, info.ID)
+		return fmt.Errorf("%s is %s, not running; see its output with: logs %s", info.ID, info.State, info.ID)
 	}
 	if !term.IsTerminal(int(e.in.Fd())) {
 		return errors.New("attach needs a terminal")
@@ -160,7 +163,7 @@ func (e *env) attach(_ context.Context, args []string) error {
 	err = e.ui.Foreground(func() error {
 		var err error
 		ended, err = keeper.Attach(info.Socket, e.in, e.tty, func(width int) string {
-			return e.st.bar(" H2H  "+info.ID+"   ctrl+\\ return to h2h, the session keeps running", width)
+			return e.st.bar(" H2H  "+info.ID+"   ctrl+\\ return to h2h, the harness keeps running", width)
 		})
 		return err
 	})
@@ -168,7 +171,7 @@ func (e *env) attach(_ context.Context, args []string) error {
 		return err
 	}
 	if ended {
-		fmt.Fprintf(e.out, "Session %s ended.\n", info.ID)
+		fmt.Fprintf(e.out, "%s ended.\n", info.ID)
 	} else {
 		fmt.Fprintf(e.out, "Left %s running.\n", info.ID)
 	}
@@ -185,13 +188,13 @@ func (e *env) logs(ctx context.Context, args []string) error {
 			rest = append(rest, a)
 		}
 	}
-	info, err := e.pick(rest, "logs [-f] [session]")
+	info, err := e.pick(rest, "logs [-f] [id]")
 	if err != nil {
 		return err
 	}
 	f, err := os.Open(session.LogPath(e.root, info.ID))
 	if errors.Is(err, os.ErrNotExist) {
-		return fmt.Errorf("session %s has produced no output", info.ID)
+		return fmt.Errorf("%s has produced no output", info.ID)
 	}
 	if err != nil {
 		return err
@@ -222,7 +225,7 @@ func (e *env) logs(ctx context.Context, args []string) error {
 }
 
 func (e *env) stop(_ context.Context, args []string) error {
-	info, err := e.pick(args, "stop [session]")
+	info, err := e.pick(args, "stop [id]")
 	if err != nil {
 		return err
 	}
@@ -234,12 +237,12 @@ func (e *env) stop(_ context.Context, args []string) error {
 }
 
 func (e *env) rm(ctx context.Context, args []string) error {
-	info, err := e.pick(args, "rm [session]")
+	info, err := e.pick(args, "rm [id]")
 	if err != nil {
 		return err
 	}
 	if info.State == session.Running || info.State == session.Starting {
-		return fmt.Errorf("session %s is %s; stop it first", info.ID, info.State)
+		return fmt.Errorf("%s is %s; stop it first", info.ID, info.State)
 	}
 	// A workspace with uncommitted work is deleted only if the user says so.
 	force := false
@@ -264,7 +267,7 @@ func (e *env) rm(ctx context.Context, args []string) error {
 		}
 	}
 	if err := workspace.Remove(ctx, e.root, info.ID, force); err != nil {
-		return fmt.Errorf("%w\nThe session was kept", err)
+		return fmt.Errorf("%w\n%s was kept", err, info.ID)
 	}
 	if err := session.Remove(e.root, info.ID); err != nil {
 		return err
@@ -309,7 +312,7 @@ func (e *env) sessionsView() console.Table {
 	lines := sessionLines(e.root, infos, e.st)
 	t := console.Table{
 		Header: lines[0],
-		Empty:  e.st.dim.Render("No sessions. Start one with ") + e.st.accent.Render("/start [harness]"),
+		Empty:  e.st.dim.Render("No harnesses running. Start one with ") + e.st.accent.Render("/start [harness]"),
 	}
 	for n, i := range infos {
 		t.Rows = append(t.Rows, console.Row{ID: i.ID, Text: lines[n+1]})
@@ -324,7 +327,7 @@ func (e *env) statusLine() string {
 		return e.st.bad.Render(err.Error())
 	}
 	if len(infos) == 0 {
-		return e.st.dim.Render("no sessions")
+		return e.st.dim.Render("no harnesses running")
 	}
 	parts := make([]string, len(infos))
 	for n, i := range infos {
@@ -366,10 +369,29 @@ func (e *env) argumentSuggestions(command string) []console.Suggestion {
 		for _, name := range cfg.DomainNames() {
 			out = append(out, console.Suggestion{Text: name, Help: "domain, on " + cfg.Domains[name].Harness})
 		}
+	case "sessions":
+		out = []console.Suggestion{{Text: "rm", Help: "Remove a saved session by its ID, or all of them with: rm all"}}
+	case "resume":
+		saved, err := listConsoleSessions(e.root)
+		if err != nil {
+			return nil
+		}
+		for _, s := range saved {
+			if s.ID != e.hereID() {
+				out = append(out, console.Suggestion{Text: s.ID, Help: displayLine(s.summary(), 60)})
+			}
+		}
+	case "install":
+		out = []console.Suggestion{{Text: updateFlag, Help: "Check the installed harnesses for a newer version, and choose which to update"}}
+		if cfg, err := config.Load(e.root); err == nil {
+			for _, name := range cfg.Names() {
+				out = append(out, console.Suggestion{Text: name, Help: strings.Join(cfg.Harnesses[name].InstallCommand, " ")})
+			}
+		}
 	case "config":
 		out = []console.Suggestion{
 			{Text: "show", Help: "Print the config"},
-			{Text: "edit", Help: "Open the config in your editor"},
+			{Text: manualFlag, Help: "Open the config in your editor"},
 		}
 	}
 	return out
@@ -388,7 +410,7 @@ func (e *env) pick(args []string, usage string) (session.Info, error) {
 		}
 		switch len(infos) {
 		case 0:
-			return session.Info{}, errors.New("there are no sessions")
+			return session.Info{}, errors.New("no harness has been started")
 		case 1:
 			return infos[0], nil
 		}
@@ -396,7 +418,7 @@ func (e *env) pick(args []string, usage string) (session.Info, error) {
 		for i, info := range infos {
 			ids[i] = info.ID
 		}
-		return session.Info{}, fmt.Errorf("which session? %s", strings.Join(ids, ", "))
+		return session.Info{}, fmt.Errorf("which one? %s", strings.Join(ids, ", "))
 	}
 	return session.Info{}, fmt.Errorf("usage: %s", usage)
 }

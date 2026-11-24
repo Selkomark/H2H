@@ -2,6 +2,7 @@ package session
 
 import (
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -157,5 +158,18 @@ func TestSocketPathIsShort(t *testing.T) {
 	}
 	if len(p) > 100 {
 		t.Errorf("SocketPath length = %d, want at most 100: %s", len(p), p)
+	}
+}
+
+func TestWritable(t *testing.T) {
+	root := t.TempDir()
+	if err := Writable(root); err != nil {
+		t.Errorf("Writable: %v", err)
+	}
+	if entries, _ := os.ReadDir(root); len(entries) != 0 {
+		t.Errorf("Writable left %d entries behind", len(entries))
+	}
+	if err := Writable(filepath.Join(root, "missing")); err == nil {
+		t.Error("Writable in a missing directory succeeded, want error")
 	}
 }

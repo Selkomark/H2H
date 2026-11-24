@@ -238,18 +238,53 @@ What this does not cover:
 
 H2H is a command-line tool first. The web UI is the same tool started with a flag.
 
-Run with no arguments, `h2h` opens its console. It takes the whole screen as one framed page: a header with tabs and the session states, a middle section, and an input at the bottom with history and a suggestion list. The Console tab is a scrolling transcript. The Sessions tab is a live table of sessions, where the arrow keys select a session and Enter attaches to it, `s` stops it and `d` deletes it, the last two after a confirmation; `/ps` switches to it, Shift+Tab moves between tabs, and running any other command brings the transcript back. Each command is typed with a leading slash, such as `/ps`. Attaching to a session or opening an editor hands the terminal over and returns to the console afterwards. While attached, H2H keeps the bottom row of the terminal for a bar that names the session and says how to leave (Ctrl-\\); the harness is told the terminal is one row shorter. Input that is not a terminal, such as a pipe, is read line by line instead. The console and the shell commands call the same code. Text without a slash is a question for the default harness; see [design.md](design.md).
+Run with no arguments, `h2h` opens its console. It takes the whole screen as one framed page: a header with tabs and the session states, a middle section, and an input at the bottom with history and a suggestion list. The Console tab is a scrolling transcript. A command that takes long, such as the assistant waiting for a harness to report, does not hold up the views. While it runs, the input line waits, but the Harnesses and Sessions tabs can still be opened, their rows chosen with the arrow keys or the mouse, and their actions run beside the command: attaching to a harness to watch it work, then leaving it with Ctrl-\\, brings the console back with the command still running. Ctrl-C stops every command that is running. The one thing that cannot be done to a harness while the user is attached to it is typing a request into it, since a session has one driver at a time.
+
+The tabs are Console, Map, Harnesses and Sessions. The Map tab draws the config as a graph; see [responsibility-map.md](responsibility-map.md). The Sessions tab lists the saved console sessions to jump into; see [Console sessions](#console-sessions). The Harnesses tab is a live table of the harnesses that were started, where the arrow keys select one and Enter attaches to it, `s` stops it and `d` deletes it, the last two after a confirmation. A question from a command is a dialog, a box at the bottom of the page. What the page was showing stays visible above it and can still be scrolled, because that is what the question is about: the changes to apply, or the work that would be lost. Only on a screen too small for both does the dialog take the middle of the page by itself. It is one of two kinds: yes or no with two buttons, where No has the focus so Enter alone agrees to nothing, or a list of options to tick. Run from the shell, the same dialog is drawn on the terminal by itself, and when the input is not a terminal the question is asked and answered as a line; `/ps` switches to it, Shift+Tab moves between tabs, and running any other command brings the transcript back. Each command is typed with a leading slash, such as `/ps`.
+
+Wherever the user types a prompt, in the input at the bottom of the page and in the answer box of a conversation such as `/config`, the text can run over several lines. The input grows with it, up to eight rows, and scrolls after that.
+
+| Key | Does |
+|---|---|
+| Enter | Sends what was typed |
+| Shift+Enter | Starts a new line, in a terminal that tells it from Enter. The console asks the terminal to, with the xterm "modify other keys" mode, and switches that off again when it exits or hands the terminal to a harness |
+| Alt+Enter, Ctrl+J | Starts a new line in any terminal |
+| Backslash, then Enter | Starts a new line in any terminal; the backslash is dropped |
+| Paste | Keeps the line breaks of what is pasted |
+| Up, Down | Move through the lines of the text, and reach the history from its first and last line |
+
+The mouse works alongside the keyboard, and everything it does has a key:
+
+| Mouse | Does | Keyboard |
+|---|---|---|
+| Wheel | Scrolls the transcript three lines at a time; moves the selection in a view and in a list of options | PgUp and PgDn, Shift+Up and Shift+Down; the arrow keys |
+| Click a tab | Switches to it | Shift+Tab |
+| The scrollbar at the right edge of the transcript | Only shows which part of a transcript longer than the screen is in view. It is not drawn when everything fits | None |
+| Click the label at the end of the transcript's last row, such as `↓ latest · end` or `↓ 12 new lines · end` | Jumps to the latest output. The label is there while the transcript is scrolled away from its end, and counts the lines printed since | End with nothing typed; Ctrl+End |
+| Click a button or an option in a dialog | Answers the question, or ticks the option | y, n, Enter, Esc; Space |
+| Click a row in a view | Selects it | The arrow keys |
+| Click an action in the hint line under a view, such as `s stop` | Runs it on the selected row | The action's key |
+| Click a suggestion | Completes the line with it | Tab |
+| Move over a message in the transcript | Puts a faint background behind that message: the line that was entered and everything it printed. The background runs from one side of the frame to the other, and half a row past the message above and below, so the text does not touch its edge. The gap between two messages belongs to neither | None |
+| Drag over text in the transcript | Marks it, and copies it to the clipboard when the button is released | None |
+
+Copying uses the system clipboard, and where there is none, as over SSH, asks the terminal to copy instead. Only text in the transcript can be selected this way. Because the console takes the mouse, the terminal's own selection needs its bypass key, which is Option in Terminal and iTerm2 and Shift in most others. While attached to a session the mouse belongs to the harness. A dialog shown outside the console, for a command run from the shell, takes the keyboard only. Attaching to a session or opening an editor hands the terminal over and returns to the console afterwards. While attached, H2H keeps the bottom row of the terminal for a bar that names the session and says how to leave (Ctrl-\\); the harness is told the terminal is one row shorter. Input that is not a terminal, such as a pipe, is read line by line instead. The console and the shell commands call the same code. Text without a slash is a question for the default harness; see [design.md](design.md).
 
 | Command | Does | Status |
 |---|---|---|
 | `h2h` | Opens the console | Built |
 | `h2h start [harness \| domain]` | Starts a session of a harness, the default one if none is named. A domain starts its owner, named after the domain (`ui-1`), with its role passed as XML through `context_args` or `context_env` | Built |
-| `h2h ps` | Lists sessions with harness, state, age and workspace. In the console, `/ps` opens the Sessions tab instead. Domain and ticket come later | Built |
-| `h2h logs [-f] [session]` | Prints or follows one session's terminal log | Built |
-| `h2h attach [session]` | Opens the session's terminal. Ctrl-\ leaves it running | Built |
-| `h2h stop [session]`, `h2h rm [session]` | Stops a session; removes a stopped session and its workspace | Built |
-| `h2h map` | Shows how the config is wired up as a tree: domains, the flow between them, and harnesses with their sessions; see [responsibility-map.md](responsibility-map.md) | Built |
-| `h2h config [show \| edit \| <description>]` | Shows, edits or describes a change to the config; see [configuration.md](configuration.md) | Built |
+| `h2h ps` | Lists the harness sessions with their ID, harness, state, age and workspace. In the console, `/ps` opens the Harnesses tab instead. Domain and ticket come later | Built |
+| `h2h logs [-f] [id]` | Prints or follows one harness session's terminal log | Built |
+| `h2h attach [id]` | Opens the harness session's terminal. Ctrl-\ leaves it running | Built |
+| `h2h stop [id]`, `h2h rm [id]` | Stops a harness session; removes a stopped one and its workspace | Built |
+| `h2h --resume [session]`, `h2h -r` | Opens the console on a saved console session; see [Console sessions](#console-sessions) | Built |
+| `h2h sessions [rm <session> \| rm all]` | Lists the saved console sessions, or removes them | Built |
+| `h2h map` | Draws the domains as boxes and the flow of work between them as arrows, with each domain's setup under the drawing. In the console, `/map` opens the Map tab instead, where a domain is selected and inspected; see [responsibility-map.md](responsibility-map.md) | Built |
+| `h2h install [--update] [harness ...]` | Installs missing harnesses at their latest version, or with `--update` offers newer versions of the installed ones; see [Install](#install) | Built |
+| `h2h ask <id \| harness \| domain> <request>` | Hands a request to a running harness in its own session and prints its report; see [Delegating to a running harness](#delegating-to-a-running-harness) | Built |
+| `h2h doctor` | Checks that everything H2H needs is in place, and exits with an error if something is not; see [Doctor](#doctor) | Built |
+| `h2h config [show \| --manual]` | Sets the config up in a conversation with the default harness; `show` prints it and `--manual` opens it in the user's editor; see [configuration.md](configuration.md) | Built |
 | `h2h serve --port <n>` | Serves the web UI, including a terminal in the browser for each session | Later |
 
 What stage 1 does not do yet:
@@ -262,6 +297,203 @@ What stage 1 does not do yet:
 - **A harness sees a reduced environment:** basic variables plus those named for it in the config, not the user's whole shell environment.
 
 The web UI offers what the CLI does, plus the ticket board and proof viewer described in [configuration.md](configuration.md). A terminal in the browser is a remote shell with the harness's permissions; see [authentication.md](authentication.md).
+
+## The assistant
+
+Text typed into the console without a slash goes to the default harness, which answers it and can act on it. It is how the user manages H2H in words: "start the owner of every domain and tell me what each is working on".
+
+### How it acts
+
+The default harness is run once, read-only, through its `stream_args` or `ask_args`. It is told what H2H is, how the config is wired up, which harnesses are running, and which commands it can run. To run one it puts the command on a line of its own after a marker (`H2H-RUN:`). When its reply ends, H2H runs those commands in order, shows the user each command and what it printed, and runs the harness again with the results, until a reply asks for no command. One message from the user gets at most six such rounds.
+
+```mermaid
+flowchart TD
+    MSG(["Text typed<br/>in the console"]) --> RUN["Default harness<br/>replies"]
+    RUN --> CMD{"Reply asks for<br/>commands?"}
+    CMD -->|No| DONE(["Answer shown"])
+    CMD -->|Yes| CHANGE{"Any that change<br/>something?"}
+    CHANGE -->|No| EXEC["H2H runs them,<br/>shows the output"]
+    CHANGE -->|Yes| ASK{"User agrees?"}
+    ASK -->|Yes| EXEC
+    ASK -->|No| SKIP["Those are skipped,<br/>the rest are run"]
+    EXEC --> RUN
+    SKIP --> RUN
+
+    classDef entry fill:#1f2937,stroke:#9ca3af,stroke-width:1.5px,color:#ffffff
+    classDef harness fill:#dbeafe,stroke:#2563eb,stroke-width:1.5px,color:#111827
+    classDef code fill:#dcfce7,stroke:#16a34a,stroke-width:1.5px,color:#111827
+    class MSG,DONE entry
+    class RUN harness
+    class CMD,CHANGE,ASK,EXEC,SKIP code
+```
+
+| The assistant can run | Asked first |
+|---|---|
+| `ps`, `map`, `logs <id>`, `sessions`, `doctor` | No: they change nothing |
+| `ask <id \| harness \| domain> <request>` | No. What the harness then does in its session is governed by that harness's own permissions |
+| `start`, `stop`, `rm`, `install`, `sessions rm` | Yes: one dialog lists the commands of the reply that change something, and the user agrees to all or none |
+| `config`, `attach`, `resume`, `logs -f`, `exit` | Never run. The config has its own flow, `/config`; the others need the terminal or belong to the console |
+
+The commands are the same functions the user runs, so a command's own safeguards still apply: `rm` still asks before deleting uncommitted work, and `install` still shows what it would install. A command the assistant may not run is answered with the reason, so it can tell the user what to do instead.
+
+This is a protocol in text and not a tool registered with the harness. It needs nothing from a harness beyond a one-shot answer, so it works the same on all three, in the read-only mode each one has, and H2H decides in code what may run.
+
+### Delegating to a running harness
+
+`ask <id | harness | domain> <request>` hands a request to a harness that is running, in its own session. This is how the assistant delegates: it starts a domain's owner, then asks it, and passes on what it reports. The work happens in that harness's session, so attaching to it shows the request and everything the harness did with it.
+
+```mermaid
+flowchart LR
+    ASK(["ask ui ..."]) --> TYPE["H2H types the request<br/>into the session"]
+    TYPE --> WORK["Harness works<br/>in its own session"]
+    WORK --> REPORT["Harness runs<br/>h2h-report"]
+    REPORT --> SHOW(["Report printed<br/>in the console"])
+
+    classDef entry fill:#1f2937,stroke:#9ca3af,stroke-width:1.5px,color:#ffffff
+    classDef harness fill:#dbeafe,stroke:#2563eb,stroke-width:1.5px,color:#111827
+    classDef code fill:#dcfce7,stroke:#16a34a,stroke-width:1.5px,color:#111827
+    class ASK,SHOW entry
+    class WORK,REPORT harness
+    class TYPE code
+```
+
+- **Which harness.** A session ID names one. A domain's name means the harness running for that domain, and a harness's name means one started for no domain. If several match, H2H asks which. If none is running, the harness is run once, read-only, without a session, and H2H says so.
+- **The request goes in through the terminal,** as pasted text followed by Enter, over the same socket attaching uses. A session has one driver at a time, so a request cannot be typed while the user is attached to that session in another terminal.
+- **The answer comes back through `h2h-report`,** a small program H2H puts in the session's state directory and on the harness's PATH. The request tells the harness to run it with the request's number and the answer as its input. Each request has its own number, so a report cannot be taken for the answer to another request. The terminal is never read for the answer.
+- **Reports are kept beside the session's socket,** in the per-user directory under `/tmp`, because a harness that confines its own commands still lets them write there.
+- **H2H waits up to 30 minutes** for the report. Ctrl-C stops the waiting, not the harness, which keeps the request.
+
+Two guards, because typing ends with Enter and H2H cannot yet see what is on the harness's screen:
+
+- **A harness that has not been told to trust the project is not typed into.** It is sitting at its trust question, and Enter would answer it, which is the user's decision to make. H2H reads the harness's trust record first, as doctor does, and refuses with a pointer to `attach`.
+- **A harness is left alone for its first ten seconds,** while it draws its screen.
+
+A harness that stops to ask for permission in the middle of the work does not stall unseen where its permission hook is wired to H2H: the request is answered from the project's rules, or shown as a dialog in the console; see [permissions.md](permissions.md#what-is-built). A harness that is not wired stops at a prompt in its own terminal, and the report does not come until the user attaches and answers.
+
+| Harness | Allowed to run `h2h-report` without asking, by | Checked on | Level reached |
+|---|---|---|---|
+| Claude Code | `report_args = ["--allowedTools", "Bash(h2h-report:*)"]` | 2.1.331 | Behaves: the request appeared in its session and its report came back |
+| Codex CLI | Nothing: its sandbox lets the command run. It does not keep the PATH it was started with, so it uses the full path given in the request | 0.172.0 | Behaves: the request appeared in its session and its report came back |
+| Copilot CLI | `report_args = ["--allow-tool", "shell(h2h-report:*)"]` | 1.0.114 | None. Copilot does not trust the test project, so the guard refused to type into it, as intended. The option is from its help text and was not seen working |
+
+### Streaming
+
+An answer is shown while it is written. Each harness can print its events as JSON, one object per line, and its config entry says which lines carry the answer and where:
+
+| Harness | `stream_args` | Text is at | Arrives | Checked on | Level reached |
+|---|---|---|---|---|---|
+| Claude Code | `--permission-mode plan -p --output-format stream-json --include-partial-messages --verbose` | `event.delta.text` | In parts, as written | 2.1.331 | Behaves: a forty-line answer began at 5.6 s and ended at 7.5 s |
+| Copilot CLI | `--output-format json --stream on -p` | `data.deltaContent` | In parts, as written | 1.0.114 | Behaves: the same answer began at 4.5 s and ended at 6.5 s |
+| Codex CLI | `exec --sandbox read-only --json` | `item.text`, where `item.type` is `agent_message` | A whole message at a time: Codex does not print parts | 0.172.0 | Behaves: the answer arrived whole at 5.9 s |
+
+When a run fails, H2H shows what the harness itself said, such as a usage limit that was reached and when it resets, or a login that expired. A harness reports that in an event marked as an error, or prints it in place of its answer, and both are passed on. Only when it said nothing does H2H show the exit status, with the command to run by hand.
+
+A harness without `stream_args` is run with `ask_args`, and its answer appears when it is complete. The time before the first text is the harness starting up and the model thinking, which streaming does not shorten. What a harness prints beside its answer, such as progress and warnings, is kept off the page and shown only if the run fails. Lines that ask H2H to run a command are not shown as text; the command and its output are.
+
+## Console sessions
+
+Two things are called a session, and the interface keeps them apart:
+
+| | Harness session | Console session |
+|---|---|---|
+| What it is | One running harness under a keeper, with its workspace | One sitting in the `h2h` console: the page and the lines that were entered |
+| Named | After its harness or domain: `claude-1`, `ui-2` | After the time it started: `20261124-115037` |
+| In the console | The Harnesses tab, `/ps`, `/attach`, `/stop`, `/rm` | The Sessions tab, `/sessions`, `/resume`, and `h2h --resume` |
+| Kept in | `.h2h/sessions/<id>/` | `.h2h/console/<id>.json` |
+| When the console closes | Keeps running | Is saved, to be resumed |
+
+In the interface, "harness" is used for the first and "session" for the second. The rest of this document, and the design, use "session" for a harness session.
+
+A console session is written to the state directory once the user has entered a line, and again after every line that has run, so closing the terminal or a crash of the console loses at most the line that was running. On leaving, H2H prints the command that resumes it.
+
+| Command | Does |
+|---|---|
+| `h2h --resume`, or `-r` | Resumes the only saved session, or with more than one asks which, showing the latest 15 with when each was last used and its first line |
+| `h2h --resume <session>` | Resumes that one |
+| `h2h sessions` | Lists the saved sessions, the latest used first |
+| `/sessions` in the console | Opens the Sessions tab: the same list, updated live, with the session on screen marked "this one". The arrow keys or a click select a session, Enter jumps into it, and `d` deletes it after a confirmation |
+| `/resume <session>` in the console | Jumps into that session. This is what Enter on the Sessions tab runs |
+| `/clear` in the console | Empties the page and carries on in the same session. The lines entered so far can still be recalled with the Up key, and the session is saved with its clean page, so resuming it later does not bring the old output back. Running harnesses are not touched |
+| `h2h sessions rm <session>` | Removes one |
+| `h2h sessions rm all` | Removes all of them, after a confirmation |
+
+Jumping into a session from inside the console replaces the page and the entered lines with that session's, and what is entered next is saved to it. The session that was on screen stays as it was when its last line finished, and can be jumped back into the same way. The session on screen cannot be deleted from inside it.
+
+A resumed console shows the page as it was left, followed by a note of which session was resumed, and the Up key recalls the lines entered before. Resuming restores what the console showed and nothing else: commands are not run again, and the harnesses were never stopped. A session keeps its last 1000 entered lines and the last 400,000 bytes of its page.
+
+The files are private to the user, like the rest of the state directory. They hold whatever was on the page, including answers from the default harness, so they are as sensitive as the terminal's scrollback. Saved sessions are kept until removed; nothing expires them.
+
+## Doctor
+
+`h2h doctor`, or `/doctor` in the console, checks what H2H needs before the user relies on it. It changes nothing: no state directory, no workspace and no session is created. It also runs outside a git repository, where it reports that and still checks the harnesses against the shipped defaults.
+
+| Check | Passes when | If not |
+|---|---|---|
+| git | git is on PATH and is 2.17 or later, the first version with every worktree command H2H uses | Fails |
+| project | The current directory is inside a git repository | Fails |
+| first commit | The repository has a commit, because a workspace is a copy of one | Fails |
+| state directory | `.h2h/` can be written, or created in the project root | Fails |
+| sessions | A pseudo-terminal opens, and a local socket can listen in the private directory under `/tmp` | Fails |
+| editor | `$VISUAL`, `$EDITOR`, nano or vi is installed | Warns: only `config --manual` needs it |
+| `h2h.toml` | The config exists and is valid | Without one, warns that the shipped defaults are in force and points at `/config`. With one that does not parse, has a setting H2H does not know, or a value it does not accept, fails with what is wrong, and the harnesses are not checked |
+| each harness: settings | The project's entry for a harness H2H ships has every setting the shipped one has | Warns, and prints the lines to add. A config written by an earlier H2H keeps working without the settings added since, and goes without what they switch on: the permission hook, the report command, streaming |
+| each harness: installed | Its `command` is on PATH | Fails for the default harness and for the owner of a domain. Warns for a harness nothing depends on |
+| each harness: runs | With `version_args` set, the program prints its version and exits cleanly. This catches a program that is installed but broken | As above |
+| each harness: login | The harness gives one short answer through its `ask_args` | As above |
+| each harness: permission | The harness's own record says the user trusts the project, or a folder above it | Warns: a session of that harness waits at its trust question until someone attaches and answers |
+
+A warning does not change the exit status. Any failure makes `h2h doctor` exit with an error, so it can gate a script.
+
+Doctor takes no options: every check runs every time. Proving a login costs one short answer from each installed harness, so a run takes some seconds per harness and uses a little of each one's allowance. A harness without `ask_args` gets a warning that its login was not checked.
+
+No harness offers a command that says whether it trusts a folder, so for the permission check H2H reads the file in which the harness records it. The file, the key and the value that means "trusted" are declared per harness in the config, and H2H only reads: giving trust stays the user's act, as set out in [Workspace trust](#workspace-trust). A trusted folder covers the folders inside it, so a record for a folder above the project counts.
+
+| Harness | `trust_file` | `trust_key` | `trust_value` | Checked on | Level reached |
+|---|---|---|---|---|---|
+| Claude Code | `~/.claude.json` | `projects`, `{project}`, `hasTrustDialogAccepted` | `true` | 2.1.331 | Loaded: doctor read the record Claude Code wrote for a project trusted through its own dialog, and reported it trusted |
+| Codex CLI | `~/.codex/config.toml` | `projects`, `{project}`, `trust_level` | `trusted` | 0.172.0 | Loaded: doctor read the record Codex wrote for a trusted project, and reported it trusted |
+| Copilot CLI | `~/.copilot/config.json` | `trustedFolders` | `{project}` | 1.0.114 | Half: doctor read Copilot's file, which starts with `//` comment lines and held no trusted folder, and reported the project as not trusted. A record written by Copilot for a trusted folder was not seen, so the key is from its documentation only |
+
+Two limits of reading the record: a harness that moves or renames it in a later version makes the check report "not trusted" until the config is corrected, and Claude Code treats a nested repository as separate from the folder above it, which this check does not model.
+
+Every harness is checked the same way, from its config entry. How each one prints its version is declared as `version_args`:
+
+| Harness | Config | Checked on | Level reached |
+|---|---|---|---|
+| Claude Code | `version_args = ["--version"]` | 2.1.331 | Behaves: doctor printed the version and got an answer |
+| Codex CLI | `version_args = ["--version"]` | 0.172.0 | Behaves: doctor printed the version and got an answer |
+| Copilot CLI | `version_args = ["--version"]` | 1.0.114 | Behaves: doctor printed the version and got an answer |
+
+## Install
+
+`h2h install`, or `/install` in the console, installs harnesses for the user. H2H has no installer of its own: each harness's config entry names the command that installs it and the command that prints its latest version, and H2H runs those.
+
+| Run as | Looks at | Offers |
+|---|---|---|
+| `install` | Every configured harness, or those named | The ones that are not installed |
+| `install --update` | The installed ones | Those whose latest version is newer than the installed one, shown as `2.1.331 → 2.1.340` |
+
+What it offers is shown in a dialog with every entry ticked, each with the command that will be run. The user unticks what to leave alone and confirms, or cancels. Nothing is installed before that, and nothing that is not ticked.
+
+After each install H2H checks the result instead of trusting the installer's exit status:
+
+- **The program is on PATH.** If not, the install went to a directory that is not on PATH, and H2H says so.
+- **The program runs,** by its `version_args`.
+- **An update changed the version.** If the version is the same as before, another copy of the harness comes first on PATH, and H2H names the one it found.
+
+A harness left out is listed with the reason: already installed, up to date, no `install_command` in the config, or its installer (such as npm) is not installed. Sessions that are running keep the version they started with.
+
+The installer runs with the user's own environment, not the reduced one a harness gets, because it is the user's package manager and needs its settings. All three shipped harnesses are published as npm packages, so all three are installed the same way:
+
+| Harness | `install_command` | `latest_command` | Checked on | Level reached |
+|---|---|---|---|---|
+| Claude Code | `npm install -g @anthropic-ai/claude-code@latest` | `npm view @anthropic-ai/claude-code version` | npm 11.19.1 | `latest_command` behaves: it printed 2.1.331, and `install --update` reported the installed 2.1.331 as up to date. `install_command` was not run |
+| Codex CLI | `npm install -g @openai/codex@latest` | `npm view @openai/codex version` | npm 11.19.1 | `latest_command` behaves: it printed 0.172.0, and `install --update` reported the installed 0.172.0 as up to date. `install_command` was not run |
+| Copilot CLI | `npm install -g @github/copilot@latest` | `npm view @github/copilot version` | npm 11.19.1 | `latest_command` behaves: it printed 1.0.114. `install` offered it as not installed. `install_command` was not run |
+
+`install_command` was run for none of the three, because it changes what is installed for the user. The install, the check afterwards and the update are covered by tests with stand-in harnesses.
+
+A harness installed another way, such as a native installer or a package manager other than npm, needs its `install_command` and `latest_command` changed to match, or an update will install a second copy beside it. H2H reports that case when the version does not change.
 
 ## Implementation
 

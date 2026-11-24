@@ -11,12 +11,16 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"reflect"
 	"regexp"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/BurntSushi/toml"
+
+	"github.com/Selkomark/H2H/internal/policy"
 )
 
 // FileName is the name of the config file at the project root.
@@ -35,6 +39,7 @@ type Config struct {
 	DefaultHarness string             `toml:"default_harness"`
 	Harnesses      map[string]Harness `toml:"harness"`
 	Domains        map[string]Domain  `toml:"domain"`
+	Permissions    Permissions        `toml:"permissions"`
 }
 
 // Harness says how to start one harness product.
@@ -42,7 +47,36 @@ type Harness struct {
 	Command string   `toml:"command"`
 	Args    []string `toml:"args"`
 	AskArgs []string `toml:"ask_args"`
-	PassEnv []string `toml:"pass_env"`
+	// StreamArgs are used instead of AskArgs to get the answer while it is
+	// being written: the harness prints JSON, one object per line.
+	// StreamText is where the text is in such a line, as keys joined by
+	// dots. StreamWhen, if set, is "keys.joined.by.dots=value": only lines
+	// where that holds carry text. StreamWhole says each piece is a whole
+	// message and not part of one, so a line break follows it.
+	StreamArgs  []string `toml:"stream_args"`
+	StreamText  string   `toml:"stream_text"`
+	StreamWhen  string   `toml:"stream_when"`
+	StreamWhole bool     `toml:"stream_whole"`
+	PassEnv     []string `toml:"pass_env"`
+	// VersionArgs make the harness print its version and exit. "doctor"
+	// runs them to prove the program works, not only that it is on PATH.
+	VersionArgs []string `toml:"version_args"`
+	// InstallCommand is the whole command, program first, that installs the
+	// latest version of the harness or updates it. LatestCommand is the
+	// whole command that prints the latest version there is. "install" runs
+	// them; neither is run without the user choosing to.
+	InstallCommand []string `toml:"install_command"`
+	LatestCommand  []string `toml:"latest_command"`
+	// TrustFile, TrustKey and TrustValue say where the harness records that
+	// the user trusts a folder, so "doctor" can read it. The
+	// file is JSON or TOML, by its extension, and a leading ~ is the home
+	// directory. TrustKey is the path of keys to the record, and TrustValue
+	// is what it holds when the folder is trusted: the record equals it, or
+	// is a list that contains it. {project} in either is the project's
+	// path. H2H only reads the file.
+	TrustFile  string   `toml:"trust_file"`
+	TrustKey   []string `toml:"trust_key"`
+	TrustValue string   `toml:"trust_value"`
 	// ContextArgs and ContextEnv tell a session started for a domain what
 	// its role is. In ContextArgs, {roles} is replaced by the roles as XML.
 	// In ContextEnv, entries are NAME=value and {roles_dir} is replaced by
@@ -51,7 +85,39 @@ type Harness struct {
 	// role. See docs/responsibility-map.md.
 	ContextArgs []string `toml:"context_args"`
 	ContextEnv  []string `toml:"context_env"`
+	// ReportArgs are added to an interactive session so the harness may
+	// run the reporting command, h2h-report, without asking the user each
+	// time. A harness without them still can, after its own prompt.
+	ReportArgs []string `toml:"report_args"`
+	// PermitArgs are added to an interactive session so the harness asks
+	// H2H, through its permission hook, before it stops to ask the user.
+	// {permit} in them is the path of the program the hook runs. A
+	// harness without them asks in its own terminal, as it does alone.
+	PermitArgs []string `toml:"permit_args"`
 }
+
+// Permissions say what a harness may do without stopping to ask. They
+// apply to harnesses that have permit_args. See docs/permissions.md.
+type Permissions struct {
+	// Mode is what happens to a request no rule covers: "ask" puts it to
+	// the user in the H2H console, "auto" allows it. Empty means "ask".
+	Mode string `toml:"mode"`
+	// Allow and Deny are patterns for what may run without asking and
+	// what is always refused. Deny wins. A * stands for any text.
+	Allow []string `toml:"allow"`
+	Deny  []string `toml:"deny"`
+}
+
+// Rules returns the permissions as the policy package takes them.
+func (p Permissions) Rules() policy.Rules {
+	return policy.Rules{Mode: p.Mode, Allow: p.Allow, Deny: p.Deny}
+}
+
+// PermitPlaceholder stands for the hook program in a harness's permit_args.
+const PermitPlaceholder = "{permit}"
+
+// AsksH2H reports whether the harness asks H2H before it asks the user.
+func (h Harness) AsksH2H() bool { return len(h.PermitArgs) > 0 }
 
 // Domain is an area of responsibility, owned by one harness. Its
 // sub-agents are the specialists the harness is asked to use inside it.
@@ -68,6 +134,34 @@ type Domain struct {
 type Subagent struct {
 	Role string `toml:"role"`
 	Does string `toml:"does"`
+}
+
+// Lacks returns the settings, by their names in the file, that shipped
+// has and h does not, each with its shipped value as it is written in the
+// file. A config written by an earlier version of H2H keeps working
+// without them, and silently goes without what they switch on.
+func (h Harness) Lacks(shipped Harness) []string {
+	var lines []string
+	mine, theirs := reflect.ValueOf(h), reflect.ValueOf(shipped)
+	for i := 0; i < mine.NumField(); i++ {
+		if !mine.Field(i).IsZero() || theirs.Field(i).IsZero() {
+			continue
+		}
+		name := mine.Type().Field(i).Tag.Get("toml")
+		switch v := theirs.Field(i).Interface().(type) {
+		case string:
+			lines = append(lines, name+" = "+strconv.Quote(v))
+		case bool:
+			lines = append(lines, name+" = "+strconv.FormatBool(v))
+		case []string:
+			quoted := make([]string, len(v))
+			for n, s := range v {
+				quoted[n] = strconv.Quote(s)
+			}
+			lines = append(lines, name+" = ["+strings.Join(quoted, ", ")+"]")
+		}
+	}
+	return lines
 }
 
 // Template returns the text of the config H2H ships with.
@@ -174,8 +268,30 @@ func (c Config) validate() error {
 				return fmt.Errorf("harness %q: %q is not an environment variable name", name, v)
 			}
 		}
+		for _, argv := range [][]string{h.InstallCommand, h.LatestCommand} {
+			if len(argv) > 0 && strings.TrimSpace(argv[0]) == "" {
+				return fmt.Errorf("harness %q: install_command and latest_command must start with the program to run", name)
+			}
+		}
+		if h.AsksH2H() && !slices.ContainsFunc(h.PermitArgs, func(a string) bool { return strings.Contains(a, PermitPlaceholder) }) {
+			return fmt.Errorf("harness %q: permit_args must contain %s where the hook program goes", name, PermitPlaceholder)
+		}
+		if err := h.validateStream(); err != nil {
+			return fmt.Errorf("harness %q: %w", name, err)
+		}
+		if err := h.validateTrust(); err != nil {
+			return fmt.Errorf("harness %q: %w", name, err)
+		}
 		if err := h.validateContext(); err != nil {
 			return fmt.Errorf("harness %q: %w", name, err)
+		}
+	}
+	if m := c.Permissions.Mode; m != "" && m != policy.ModeAsk && m != policy.ModeAuto {
+		return fmt.Errorf("permissions: mode %q is not %q or %q", m, policy.ModeAsk, policy.ModeAuto)
+	}
+	for _, p := range slices.Concat(c.Permissions.Allow, c.Permissions.Deny) {
+		if strings.TrimSpace(p) == "" {
+			return errors.New("permissions: an empty pattern would match nothing; remove it")
 		}
 	}
 	if c.DefaultHarness == "" {
@@ -185,6 +301,46 @@ func (c Config) validate() error {
 		return fmt.Errorf("default_harness %q is not a configured harness (configured: %s)", c.DefaultHarness, strings.Join(c.Names(), ", "))
 	}
 	return c.validateDomains()
+}
+
+// Streams reports whether the harness can give its answer while it is
+// being written.
+func (h Harness) Streams() bool { return len(h.StreamArgs) > 0 }
+
+func (h Harness) validateStream() error {
+	switch {
+	case !h.Streams() && (h.StreamText != "" || h.StreamWhen != "" || h.StreamWhole):
+		return errors.New("stream_text, stream_when and stream_whole need stream_args")
+	case h.Streams() && h.StreamText == "":
+		return errors.New("stream_args needs stream_text, which says where the text is in a line of output")
+	case h.StreamWhen != "" && !strings.Contains(h.StreamWhen, "="):
+		return fmt.Errorf("stream_when %q is not keys=value", h.StreamWhen)
+	}
+	return nil
+}
+
+// ProjectPlaceholder stands for the project's path in a harness's trust
+// settings.
+const ProjectPlaceholder = "{project}"
+
+// ChecksTrust reports whether the config says where the harness records
+// the folders it trusts.
+func (h Harness) ChecksTrust() bool { return h.TrustFile != "" }
+
+func (h Harness) validateTrust() error {
+	if h.TrustFile == "" && len(h.TrustKey) == 0 && h.TrustValue == "" {
+		return nil
+	}
+	if h.TrustFile == "" || len(h.TrustKey) == 0 || h.TrustValue == "" {
+		return errors.New("trust_file, trust_key and trust_value are set together or not at all")
+	}
+	if ext := filepath.Ext(h.TrustFile); ext != ".json" && ext != ".toml" {
+		return fmt.Errorf("trust_file %q must end in .json or .toml", h.TrustFile)
+	}
+	if !strings.Contains(strings.Join(h.TrustKey, "")+h.TrustValue, ProjectPlaceholder) {
+		return fmt.Errorf("trust_key or trust_value must contain %s where the project's path goes", ProjectPlaceholder)
+	}
+	return nil
 }
 
 // The placeholders a harness's context settings may use.

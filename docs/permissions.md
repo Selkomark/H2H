@@ -85,6 +85,74 @@ Automatic approval raises the cost of a wrong rule, so each session also needs a
 
 The broader the automatic approvals, the stronger the containment has to be. A session with no sandbox should run with narrow rules and ask often.
 
+## What is built
+
+Layers 2 and 3, for the shell and the other tools a harness asks about, with rules for the whole project. Layer 1, rules per domain, saving an answer as a rule, and containment are not built.
+
+### The rules
+
+They are the `[permissions]` table of `h2h.toml`:
+
+```toml
+[permissions]
+mode = "ask"
+allow = ["git status*", "git diff*", "npm test*"]
+deny = ["git push*", "*rm -rf*"]
+```
+
+| Setting | Meaning |
+|---|---|
+| `mode` | What happens to a request no rule covers. `ask`, the default, puts it to the user. `auto` allows it |
+| `allow` | Patterns for what runs without asking |
+| `deny` | Patterns for what is always refused, in `auto` mode too. Deny wins over allow |
+
+A pattern is matched against a shell command as it would be run, or for another tool its name followed by what it acts on, such as `Edit web/app.tsx`. A `*` stands for any text, and a pattern without one matches only that exact text.
+
+Paths in a request are rewritten before the rules are applied, so that a config committed with the project works wherever the project is cloned:
+
+| Where the path points | Written as | Example rule |
+|---|---|---|
+| Inside the harness's own working copy of the project | `./` and the path from its top | `Edit ./web/*` |
+| Inside the project's folder, outside that working copy | `{project}` and the path from the project's top | `git -C {project} status*` |
+| Anywhere else | In full | `Edit /etc/hosts` |
+
+A harness works in its own working copy, so `./` is where its edits belong, and a rule such as `Edit ./*` allows them without allowing edits to the main checkout or to anything outside the project. The dialog shows the command as the harness wrote it, with its real paths.
+
+A shell command line is often several commands: `git status --short | head; git log -1`. The rules are applied to each command in it, split at `;`, `&&`, `||`, `|`, `&` and line breaks outside quotes:
+
+- **Denied** if any command in it matches a deny pattern, or the line as a whole does. `git status && git push` is denied by `git push*`.
+- **Allowed by rule** only if every command in it matches an allow pattern. `git status*` therefore does not let `git status; make deploy` through: that goes to the user.
+- **Never allowed by a pattern** if a command writes to or reads from a file with `>` or `<`, or runs another command inside itself with `$( )` or backticks. It does more than its pattern says, so it goes to the user. Sending output to `/dev/null` and joining the output streams with `2>&1` do not count.
+
+`auto` is the option for running unattended. It makes the deny list the only thing between a harness and the machine, so it belongs with a short allow list of nothing and a deny list of what must never happen, and it is the user's choice to make per project.
+
+### How a request travels
+
+A harness started with `permit_args` has its permission hook pointed at `h2h-permit`, a small program in the session's state directory. When the harness is about to stop and ask, it runs the hook instead:
+
+1. `h2h-permit` reads the request and matches it against the rules. An allow or a deny is answered at once, with no prompt anywhere.
+2. With no rule, the request is put in the session's queue and the hook waits.
+3. The H2H console looks at the queues every two seconds and shows the oldest request as a dialog: which harness, what it wants to run, and three answers. **Allow once**; **allow this for the rest of that harness's session**, which is remembered until the harness is removed; or **deny**.
+4. The answer goes back through the hook. A deny carries a message that tells the model what to do next: not to try another way, to carry on with the rest, and to say so in its report.
+
+The dialog opens with the focus on Deny, and leaving it with Esc also denies: a question that appears while the user is typing must not be answered yes by their next Enter. While the user is attached to a harness the console cannot show a dialog, so a request waits until they are back.
+
+A request waits nine minutes, just under the ten a harness gives its hook. If nobody answers, which includes the console not being open, the harness is told the request is still waiting and to carry on without it. Holding a request for hours is not built.
+
+One thing needs no rule: the harness sending its report with `h2h-report`, which is what H2H asked it to do. It is let through only when the command is that and nothing else; a report command with another command attached is treated like any other request.
+
+When H2H cannot judge a request, it never allows it: a request it cannot read, or a config it cannot load, goes to the user. If the hook program itself fails, the harness falls back to its own prompt in its terminal, which is what would have happened without H2H.
+
+### Per harness
+
+| Harness | How its hook is pointed at H2H | Checked on | Level reached |
+|---|---|---|---|
+| Claude Code | `permit_args = ["--settings", '{"hooks":{"PermissionRequest":[...{permit}..."timeout":600...]}}']`, a settings source added for the session, beside the user's own. The time limit is stated because the hook otherwise gives up before a person has answered, and the prompt appears after all | 2.1.331 | Behaves: in a session started in manual mode, a command with no rule reached H2H's queue; allowed after a 75-second wait it ran, denied it did not run and the report said the user declined; no prompt appeared in its terminal either time |
+| Codex CLI | Not wired. It takes the same hook and the same answer, as a config override, but asks the user to review each new hook unless started with a flag that skips the review. Which of the two H2H should do is the user's decision, and the check that would settle the details was not run | 0.172.0 | None |
+| Copilot CLI | Not wired. It reads hooks only from files in its user folder, so this needs an install the user approves; see [runtime.md](runtime.md) | 1.0.114 | None |
+
+A harness that is not wired behaves as it does on its own: it stops at a prompt in its terminal, and the user answers by attaching. `h2h start` says so when it starts one.
+
 ## Validation
 
 Layers 2 and 3 were tested on Claude Code, Copilot CLI and Codex CLI; the details are in [findings.md](findings.md).

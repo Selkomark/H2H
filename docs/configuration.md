@@ -17,6 +17,12 @@ default_harness = "claude"
 command = "claude"
 args = []
 ask_args = ["--permission-mode", "plan", "-p"]
+version_args = ["--version"]
+install_command = ["npm", "install", "-g", "@anthropic-ai/claude-code@latest"]
+latest_command = ["npm", "view", "@anthropic-ai/claude-code", "version"]
+trust_file = "~/.claude.json"
+trust_key = ["projects", "{project}", "hasTrustDialogAccepted"]
+trust_value = "true"
 pass_env = ["ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN"]
 context_args = ["--append-system-prompt", "{roles}"]
 
@@ -39,6 +45,13 @@ depends_on = ["ui", "backend"]
 | `default_harness` | The harness used when none is named, and the one that answers the console |
 | `command`, `args` | How to start an interactive session |
 | `ask_args` | How to get one non-interactive answer. The prompt is appended. A read-only mode is used where the harness has one |
+| `permit_args` | Arguments added to a session so the harness asks H2H, through its own permission hook, instead of stopping at a prompt. `{permit}` is the program the hook runs. See [permissions.md](permissions.md#what-is-built) |
+| `[permissions]` | What a harness may do without asking: `mode` (`ask` or `auto`), `allow` and `deny` patterns. See [permissions.md](permissions.md#the-rules) |
+| `report_args` | Arguments added to a session so the harness may run `h2h-report`, the command it answers a delegated request with, without stopping to ask. They allow nothing else. See [runtime.md](runtime.md#delegating-to-a-running-harness) |
+| `stream_args`, `stream_text`, `stream_when`, `stream_whole` | How to get that answer while it is being written. `stream_args` replace `ask_args` and make the harness print JSON, one object per line. `stream_text` says where the text is in a line, as keys joined by dots. `stream_when`, as `keys=value`, limits it to the lines that carry the answer. `stream_whole` says each piece is a whole message. See [runtime.md](runtime.md#streaming) |
+| `version_args` | Arguments that make the harness print its version and exit. `doctor` runs them to check that the program works; without them it only checks that the program is on PATH |
+| `install_command`, `latest_command` | Whole commands, program first. The first installs the latest version of the harness or updates it, the second prints the latest version there is. `install` runs them, after the user chooses; see [runtime.md](runtime.md#install) |
+| `trust_file`, `trust_key`, `trust_value` | Where the harness records that the user trusts a folder, read by `doctor`: a JSON or TOML file, the path of keys to the record, and what the record holds, or one entry of it if it is a list, when the folder is trusted. `{project}` is the project's path. H2H never writes this file; see [runtime.md](runtime.md#doctor) |
 | `pass_env` | Environment variables the harness may see beyond the basic set. Names only; values stay in the environment |
 | `context_args`, `context_env` | How a session started for a domain is told its role. In `context_args`, `{roles}` becomes the roles as XML. In `context_env`, `{roles_dir}` becomes a directory holding them as `AGENTS.md`. Each shipped harness has one; see [responsibility-map.md](responsibility-map.md) |
 | `[domain.<name>]` | An area of responsibility. `harness` owns it, `does` says what it covers, `paths` are the files it owns |
@@ -51,11 +64,66 @@ Unknown settings are rejected, so a typing mistake is reported instead of ignore
 
 | Way | What happens |
 |---|---|
-| `/config edit` | Opens a copy in the user's editor (`$VISUAL`, `$EDITOR`, then nano or vi) |
-| `/config <description>` | The default harness rewrites the file to match a description in words |
+| `/config` | A conversation with the default harness, which asks how the team should be arranged and writes the file once the user says they are done |
+| `/config --manual` | Opens a copy in the user's editor (`$VISUAL`, `$EDITOR`, then nano or vi). A project without a config starts from the one H2H ships with |
 | Editing `h2h.toml` directly | Read the next time a command runs |
 
-The first two go through plan and apply: the result is validated, the difference is shown, and nothing is written until the user confirms. A change applies to sessions started afterwards.
+`/config show` prints the config as it stands.
+
+The first two go through plan and apply: the result is validated, and nothing is written until the user confirms. What they are shown is the two things the question is about and nothing else:
+
+1. **The lines that change** in `h2h.toml`.
+2. **The map of the setup with this config,** last, so it is what stands right above the question. It is the same drawing as `/map`, with each domain's sub-agents listed in its box, because a box cannot be opened here to look inside.
+
+The question sits under the map, which stays on screen and can be scrolled.
+
+Answering no does not end the setup. In the conversation, the box opens again and asks what should be different, and the harness carries on from the config that was turned down; leaving it with Esc stops there. In `/config --manual`, H2H offers to open the editor again on the draft. A change applies to harness sessions started afterwards.
+
+### The conversation
+
+`/config` opens a box over the console page. It opens on a picture of the setup as it is now, so there is no description to read: the map, with each domain's owner and sub-agents in its box, and under it a table with one row per domain (owner, sub-agents, files, what it starts after). Under the picture it says how to reply.
+
+The default harness then asks one question at a time. It does not explain H2H or list the setup again, because the picture has done that. The user answers in plain words, over several lines if they like, and can ask for a suggestion.
+
+Finishing is not left to how the harness reads a "yes" or an "ok":
+
+- **Typing `/done`** is read by H2H itself, which tells the harness in fixed words that the user is finished and to send the file.
+- **The harness never asks for a confirmation in words** and never summarises the setup in prose. When the user is done it sends the file, and H2H asks: the changes, the map of the result, and a Yes or No.
+- **A reply that does not say what to do,** such as a bare "yes" that answers no question, is not guessed at: the harness asks the user to either say what should change or type `/done`.
+
+```mermaid
+flowchart TD
+    START(["/config"]) --> ASK["Harness asks<br/>a question"]
+    ASK --> ANSWER["User answers"]
+    ANSWER --> DONE{"User confirmed<br/>the summary?"}
+    DONE -->|No| ASK
+    DONE -->|Yes| FILE["Harness sends<br/>the config"]
+    FILE --> VALID{"Valid?"}
+    VALID -->|No, up to twice| FILE
+    VALID -->|Yes| APPLY{"User applies<br/>changes and map?"}
+    APPLY -->|No, change it| ASK
+    APPLY -->|Yes| DOCTOR["Doctor checks<br/>everything"]
+    DOCTOR --> OK{"Passed?"}
+    OK -->|No| PROBLEMS(["Saved, with the<br/>problems listed"])
+    OK -->|Yes| MAP(["Map shown:<br/>H2H is configured"])
+
+    classDef entry fill:#1f2937,stroke:#9ca3af,stroke-width:1.5px,color:#ffffff
+    classDef harness fill:#dbeafe,stroke:#2563eb,stroke-width:1.5px,color:#111827
+    classDef code fill:#dcfce7,stroke:#16a34a,stroke-width:1.5px,color:#111827
+    class START,PROBLEMS,MAP entry
+    class ASK,FILE harness
+    class ANSWER,DONE,VALID,APPLY,DOCTOR,OK code
+```
+
+How it is built:
+
+- **Each turn is one read-only run of the harness,** through its `ask_args`, given what H2H is for, the config as it stands, which harnesses are installed, and the conversation so far. The comments in the config are the schema the harness works from. It may read the project to suggest domains, and changes nothing.
+- **It is not the harness's own interface in a box.** Showing that would need a terminal emulator inside the console. Running one turn at a time also makes the conversation work the same on every harness that has `ask_args`, and lets H2H tell exactly when the file has arrived: the harness puts a marker line before it.
+- **A config that does not validate is sent back** to the harness with the reason, up to twice, and the user is told.
+- **Leaving the box,** with Esc, cancels the setup and leaves the config as it was.
+- **Without the console,** from the shell or a pipe, the same conversation is held as lines.
+
+Each turn costs one answer from the default harness, and takes as long as that harness takes to start and reply.
 
 ## Why config as code
 

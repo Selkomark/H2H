@@ -34,6 +34,26 @@ func newRepo(t *testing.T) string {
 	return root
 }
 
+func TestGitVersion(t *testing.T) {
+	if v, err := GitVersion(context.Background()); err != nil || v == "" {
+		t.Errorf("GitVersion() = %q, %v", v, err)
+	}
+}
+
+func TestReady(t *testing.T) {
+	ctx := context.Background()
+	if err := Ready(ctx, newRepo(t)); err != nil {
+		t.Errorf("Ready with a commit: %v", err)
+	}
+	empty := t.TempDir()
+	if out, err := exec.Command("git", "-C", empty, "init", "-q").CombinedOutput(); err != nil {
+		t.Fatalf("git init: %v\n%s", err, out)
+	}
+	if err := Ready(ctx, empty); err == nil {
+		t.Error("Ready without a commit succeeded, want error")
+	}
+}
+
 func TestRootOutsideARepository(t *testing.T) {
 	if _, err := Root(context.Background(), t.TempDir()); err == nil {
 		t.Error("Root outside a repository succeeded, want error")

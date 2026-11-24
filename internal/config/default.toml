@@ -1,8 +1,8 @@
 # H2H configuration.
 #
-# Edit this file with "/config edit" inside h2h, or describe a change in
-# words with "/config <what you want>". Either way H2H validates the result
-# and shows the difference before anything is applied.
+# Set this file up in a conversation with "/config" inside h2h, or edit it
+# yourself with "/config --manual". Either way H2H validates the result and
+# shows the difference before anything is applied.
 
 # The harness H2H uses when none is named: for new sessions, and to answer
 # text typed into the h2h console. It must be one of the harnesses below.
@@ -16,6 +16,39 @@ default_harness = "claude"
 #             appended as the last argument. Where the harness has a
 #             read-only mode it is used here, because answering a question
 #             should not change the project
+#   permit_args
+#             arguments added to a session so the harness asks H2H, through
+#             its own permission hook, instead of stopping at a prompt in
+#             its terminal. {permit} is the program the hook runs. What H2H
+#             answers is set under [permissions] below
+#   report_args
+#             arguments added to a session so the harness may run
+#             "h2h-report", the command it answers a delegated request
+#             with, without stopping to ask you. Nothing else is allowed
+#             by them
+#   stream_args, stream_text, stream_when, stream_whole
+#             how to get that answer while it is being written, so the
+#             console shows it as it arrives. stream_args replace ask_args
+#             and make the harness print JSON, one object per line.
+#             stream_text says where the text is in a line, as keys joined
+#             by dots. stream_when, as keys=value, limits it to the lines
+#             that carry the answer. stream_whole = true says each piece is
+#             a whole message, for a harness that does not send parts
+#   version_args
+#             arguments that make the harness print its version and exit.
+#             "/doctor" runs them to check that the program really works
+#   install_command, latest_command
+#             whole commands, program first. install_command installs the
+#             latest version of the harness, or updates it. latest_command
+#             prints the latest version there is. "/install" runs them, and
+#             only after you choose what to install
+#   trust_file, trust_key, trust_value
+#             where the harness records that you trust a folder, so that
+#             "/doctor" can tell whether it will stop to ask.
+#             trust_file is JSON or TOML, trust_key is the path of keys to
+#             the record, and trust_value is what the record holds, or one
+#             entry of it if it is a list, when the folder is trusted.
+#             {project} is the project's path. H2H only reads this file
 #   pass_env  extra environment variables the harness may see. A harness
 #             otherwise gets only a basic environment (HOME, PATH, TERM,
 #             locale, proxy settings), never your whole shell environment.
@@ -32,6 +65,16 @@ command = "claude"
 args = []
 ask_args = ["--permission-mode", "plan", "-p"]
 context_args = ["--append-system-prompt", "{roles}"]
+permit_args = ["--settings", '{"hooks":{"PermissionRequest":[{"matcher":"*","hooks":[{"type":"command","command":"{permit}","timeout":600}]}]}}']
+report_args = ["--allowedTools", "Bash(h2h-report:*)"]
+stream_args = ["--permission-mode", "plan", "-p", "--output-format", "stream-json", "--include-partial-messages", "--verbose"]
+stream_text = "event.delta.text"
+version_args = ["--version"]
+install_command = ["npm", "install", "-g", "@anthropic-ai/claude-code@latest"]
+latest_command = ["npm", "view", "@anthropic-ai/claude-code", "version"]
+trust_file = "~/.claude.json"
+trust_key = ["projects", "{project}", "hasTrustDialogAccepted"]
+trust_value = "true"
 pass_env = ["ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN"]
 
 [harness.copilot]
@@ -39,6 +82,15 @@ command = "copilot"
 args = []
 ask_args = ["-p"]
 context_env = ["COPILOT_CUSTOM_INSTRUCTIONS_DIRS={roles_dir}"]
+report_args = ["--allow-tool", "shell(h2h-report:*)"]
+stream_args = ["--output-format", "json", "--stream", "on", "-p"]
+stream_text = "data.deltaContent"
+version_args = ["--version"]
+install_command = ["npm", "install", "-g", "@github/copilot@latest"]
+latest_command = ["npm", "view", "@github/copilot", "version"]
+trust_file = "~/.copilot/config.json"
+trust_key = ["trustedFolders"]
+trust_value = "{project}"
 pass_env = ["COPILOT_GITHUB_TOKEN", "GH_TOKEN", "GITHUB_TOKEN"]
 
 [harness.codex]
@@ -46,7 +98,44 @@ command = "codex"
 args = []
 ask_args = ["exec", "--sandbox", "read-only"]
 context_args = ["-c", "developer_instructions={roles}"]
+stream_args = ["exec", "--sandbox", "read-only", "--json"]
+stream_text = "item.text"
+stream_when = "item.type=agent_message"
+stream_whole = true
+version_args = ["--version"]
+install_command = ["npm", "install", "-g", "@openai/codex@latest"]
+latest_command = ["npm", "view", "@openai/codex", "version"]
+trust_file = "~/.codex/config.toml"
+trust_key = ["projects", "{project}", "trust_level"]
+trust_value = "trusted"
 pass_env = ["OPENAI_API_KEY"]
+
+# What a harness may do without stopping to ask you. A harness with
+# permit_args asks H2H first, and H2H answers from these rules:
+#
+#   mode   what happens when no rule covers the request. "ask" (the
+#          default) puts it to you in a dialog in the h2h console, where you
+#          allow it once, allow it for the rest of that harness's session,
+#          or refuse it. "auto" allows it without asking
+#   allow  what runs without asking, as patterns. A pattern is matched
+#          against each command of a shell command line, or for another
+#          tool its name followed by what it acts on, such as
+#          "Edit web/app.tsx". A * stands for any text. A command that
+#          writes to a file with > or runs another command inside $( ) is
+#          never allowed by a pattern.
+#          Paths are written so the rules work wherever the project is
+#          cloned: "./" is the harness's own working copy of the project,
+#          as in "Edit ./web/*", and {project} is the project's folder, as
+#          in "git -C {project} status*". A path anywhere else is written
+#          in full
+#   deny   what is always refused, also in auto mode. Deny wins over allow
+#
+# For example:
+#
+# [permissions]
+# mode = "ask"
+# allow = ["git status*", "git diff*", "git log*", "npm test*", "Edit ./*"]
+# deny = ["git push*", "*rm -rf*"]
 
 # Domains of responsibility. Each is owned by one harness above, lists the
 # sub-agent roles that harness should use as specialists, and names the

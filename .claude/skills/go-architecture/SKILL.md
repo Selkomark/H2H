@@ -75,7 +75,7 @@ Rules:
 
 - **Everything is `internal/`.** H2H ships a binary, not a library, so nothing is importable from outside until there is a deliberate reason to publish an API.
 - **`cmd/h2h/` instead of a root `main.go`,** so the installed binary is named `h2h` and not after the module path.
-- **One command, two views.** A command is one function in `cli`. `h2h ps` and `/ps` both call it; the console only draws the screen and reads lines, and never implements behaviour. A command reaches the user through the `console.UI` it is given (write, confirm, hand over the terminal), never through the terminal directly.
+- **One command, two views.** A command is one function in `cli`. `h2h ps` and `/ps` both call it; the console only draws the screen and reads lines, and never implements behaviour. A command reaches the user through the `console.UI` it is given (write, confirm, choose from a list, hand over the terminal), never through the terminal directly.
 - **This tree is a map, not a scaffold.** A package is created in the roadmap stage that first needs it (`docs/roadmap.md`). Do not add empty packages, placeholder files or `doc.go` stubs ahead of use.
 - **Tests sit beside the code** as `*_test.go`. Fixtures go in a `testdata/` directory in the same package.
 - **Split by file before splitting by package.** A new package needs its own responsibility and a clear import direction. Avoid packages with one small file, and avoid nesting deeper than `internal/<package>/<subpackage>`.
