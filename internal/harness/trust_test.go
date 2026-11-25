@@ -47,6 +47,8 @@ func TestTrusted(t *testing.T) {
 		{"listed, not there", listed, `{"trustedFolders": ["/x"]}`, false, false},
 		{"listed, no list yet", listed, "// managed automatically\n{\"firstLaunchAt\": \"today\"}\n", false, false},
 		{"toml, trusted", inTOML, "[projects.\"/work/team/app\"]\ntrust_level = \"trusted\"\n", true, false},
+		{"toml, a true or false", config.Harness{TrustFile: "~/h.toml", TrustKey: []string{"folders", "{project}", "trusted"}, TrustValue: "true"},
+			"[folders.\"/work/team/app\"]\ntrusted = true\ndecided_at = 1\n", true, false},
 		{"toml, untrusted", inTOML, "[projects.\"/work/team/app\"]\ntrust_level = \"untrusted\"\n", false, false},
 		{"no file", keyed, "", false, false},
 		{"unreadable file", keyed, "{not json", false, true},

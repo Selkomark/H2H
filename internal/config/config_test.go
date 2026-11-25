@@ -16,7 +16,7 @@ func TestShippedDefault(t *testing.T) {
 	if c.DefaultHarness != "claude" {
 		t.Errorf("DefaultHarness = %q, want %q", c.DefaultHarness, "claude")
 	}
-	if got, want := strings.Join(c.Names(), ","), "claude,codex,copilot,opencode"; got != want {
+	if got, want := strings.Join(c.Names(), ","), "claude,codex,copilot,grok,opencode"; got != want {
 		t.Errorf("Names() = %q, want %q", got, want)
 	}
 }
@@ -85,7 +85,7 @@ func TestUnconfigured(t *testing.T) {
 		t.Fatal(err)
 	}
 	// claude is there under another name, so it is not offered again.
-	if got, want := strings.Join(c.Unconfigured(), ","), "copilot,opencode"; got != want {
+	if got, want := strings.Join(c.Unconfigured(), ","), "copilot,grok,opencode"; got != want {
 		t.Errorf("Unconfigured() = %q, want %q", got, want)
 	}
 	if got := Shipped().Unconfigured(); len(got) != 0 {

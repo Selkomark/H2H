@@ -96,6 +96,8 @@ The experiments passed for Codex 0.172.0 with one important condition. The detai
 - **Roles and a hook go to the server.** Given to it with `-c`, both worked. Since roles differ between sessions, this points to one server per session.
 - **Still to do:** the rest of experiment 6, restarting and reconnecting, and a decision on depending on an experimental interface.
 
+Grok was added as a built-in harness after this comparison, and its control connections have not been compared. Its help lists `grok agent`, and its documentation an Agent Client Protocol interface.
+
 ## Where it lives
 
 The connection must survive the console closing, as sessions do today. The keeper is deliberately small: it holds a terminal, serves attach and writes state ([runtime.md](runtime.md#keeper)). Speaking a protocol does not belong in it by default. The likely shape is a control process per session beside the keeper. This is decided after the experiments, with the least-privilege rule: it gets that session's connection and nothing else, reachable only by the same OS user. A harness server that listens on the network must be bound to this machine and require a token.

@@ -51,7 +51,7 @@ func TestEveryShippedHarnessCarriesAConversationOn(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, name := range []string{"claude", "copilot", "codex", "opencode"} {
+	for _, name := range []string{"claude", "copilot", "codex", "opencode", "grok"} {
 		h, ok := c.Harnesses[name]
 		if !ok || !h.Remembers() {
 			t.Errorf("the shipped %s cannot carry a conversation on", name)

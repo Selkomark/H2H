@@ -170,6 +170,29 @@ latest_command = ["npm", "view", "@opencode/cli", "version"]
 no_trust_question = true
 pass_env = ["OPENCODE_API_KEY"]
 
+# Grok. Its read-only runs name the permission mode, because a user's own
+# setting may approve everything, and leave it only its reading tools, with
+# MCP tools denied. It has no way to take hooks at launch, so H2H cannot be
+# told when a session waits. A session uses your own permission setting.
+[harness.grok]
+command = "grok"
+args = []
+ask_args = ["--permission-mode", "default", "--tools", "read_file,grep,list_dir", "--deny", "MCPTool", "--no-subagents", "--disable-web-search", "-p"]
+context_args = ["--rules", "{roles}"]
+report_args = ["--allow", "Bash(h2h-report*)"]
+no_wait_signal = true
+stream_args = ["--permission-mode", "default", "--tools", "read_file,grep,list_dir", "--deny", "MCPTool", "--no-subagents", "--disable-web-search", "--output-format", "streaming-messages-json", "--include-partial-messages", "-p"]
+stream_text = "event.delta.text"
+conversation_args = ["--permission-mode", "default", "--tools", "read_file,grep,list_dir", "--deny", "MCPTool", "--no-subagents", "--disable-web-search", "--output-format", "streaming-messages-json", "--include-partial-messages", "--session-id", "{conversation}", "-p"]
+resume_args = ["--permission-mode", "default", "--tools", "read_file,grep,list_dir", "--deny", "MCPTool", "--no-subagents", "--disable-web-search", "--output-format", "streaming-messages-json", "--include-partial-messages", "--resume", "{conversation}", "-p"]
+version_args = ["--version"]
+install_command = ["bash", "-c", "set -o pipefail; curl -fsSL https://x.ai/cli/install.sh | bash"]
+latest_command = ["sh", "-c", 'grok update --check --json | sed -n "s/.*\"latestVersion\": *\"\([^\"]*\)\".*/\1/p"']
+trust_file = "~/.grok/trusted_folders.toml"
+trust_key = ["folders", "{project}", "trusted"]
+trust_value = "true"
+pass_env = ["XAI_API_KEY"]
+
 # What a harness may do without stopping to ask you. A harness with
 # permit_args asks H2H first, and H2H answers from these rules:
 #

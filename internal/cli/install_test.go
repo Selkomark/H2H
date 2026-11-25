@@ -324,7 +324,7 @@ func TestInstallKnowsHarnessesTheConfigLacks(t *testing.T) {
 		t.Errorf("something was offered although its installer is missing: %q", ui.labels)
 	}
 	// A name H2H does not know is refused, and says what it does support.
-	if err := e.install(context.Background(), []string{"nothing"}); err == nil || !strings.Contains(err.Error(), "H2H also supports: claude, codex, copilot, opencode") {
+	if err := e.install(context.Background(), []string{"nothing"}); err == nil || !strings.Contains(err.Error(), "H2H also supports: claude, codex, copilot, grok, opencode") {
 		t.Errorf("install nothing = %v", err)
 	}
 }

@@ -213,6 +213,7 @@ The hooks are declared per harness in the config, as `state_args`, `state_env` a
 | Copilot CLI | A plugin folder, `--plugin-dir`, so nothing goes into `~/.copilot` | `notification`, for `permission_prompt` and `elicitation_dialog` | `postToolUse`, `userPromptSubmitted`, `agentStop` | 1.0.115: a real permission prompt was marked within 2 seconds, with what it asked, and cleared when answered |
 | Codex CLI | `-c hooks.<Event>=...` overrides, with `--dangerously-bypass-hook-trust`, since H2H writes these hooks itself | `PermissionRequest`, which fires only when Codex is about to ask | `PostToolUse`, `UserPromptSubmit`, `Stop` | 0.171.0: the hooks run as given and the go hook clears a wait; the prompt itself was measured in spike 01 on the same version |
 | OpenCode | None: `no_wait_signal = true` | Silence while a request is open | Output | 2.4.1: its plugin loads from `OPENCODE_CONFIG_DIR`, but its event hook received no events in a session, so there is no signal to use yet |
+| Grok | None: `no_wait_signal = true`. It has a `Notification` hook, but no way was found to give hooks to an interactive session at launch, and H2H installs nothing in `~/.grok` | Silence while a request is open | Output | 1.0.92: help and documentation only |
 
 A wait the hooks recorded is cleared by the harness's own "carries on" events. Answering by attaching produces one of them. When a session is removed, its wait record goes with it.
 
@@ -419,6 +420,7 @@ A plan mode is not the way to make this run read-only. In Claude Code's plan mod
 | Codex CLI | Yes | Yes | 0.172.0 |
 | Copilot CLI | Yes | Yes | 1.0.116 |
 | OpenCode | Not checked: its free usage limit was reached. It still runs with `--agent plan`, so it may have the same problem | Not checked | 2.4.1 |
+| Grok | Yes | Yes. Asked to try every tool, a run could not write: it had `read_file`, `list_dir`, `grep`, `search_tool` and `use_tool`, and a write through `use_tool` was refused by the deny rule. This held with the user's own setting at `always-approve` | 1.0.92 |
 
 For Codex and Copilot, no file shows what the model did, not that the harness would have stopped a write.
 
@@ -444,6 +446,7 @@ How each harness is told which conversation a run belongs to is in its config en
 | Copilot CLI | 1.0.115 | `--session-id <id> ... -p`, with an ID H2H chooses | the same | 4, behaves: as above |
 | Codex CLI | 0.171.0 | `exec --sandbox read-only --json`; the ID is read from the `thread_id` its output reports | `exec resume -c sandbox_mode="read-only" --json <id>` | 4, behaves: as above |
 | OpenCode | 2.4.1 | `run ... --session ses_<id>`, with an ID H2H chooses; OpenCode requires the `ses` prefix | the same | 3, loaded: OpenCode created and reported the session under the ID H2H gave. Not 4: the account used for the check had reached OpenCode's free usage limit, so no answer was given |
+| Grok | 1.0.92 | `... --session-id <id> -p`, with an ID H2H chooses | `... --resume <id> -p` | 4, behaves: remembered a word across two messages through H2H |
 
 ### Delegating to a running harness
 
@@ -483,6 +486,7 @@ A harness that stops to ask for permission in the middle of the work does not st
 | Codex CLI | Nothing: its sandbox lets the command run. It does not keep the PATH it was started with, so it uses the full path given in the request | 0.172.0 | Behaves: the request appeared in its session and its report came back |
 | Copilot CLI | `report_args = ["--allow-tool", "shell(h2h-report:*)"]` | 1.0.114 | None. Copilot does not trust the test project, so the guard refused to type into it, as intended. The option is from its help text and was not seen working |
 | OpenCode | Nothing: it allows shell commands by default | 2.4.1 | Behaves: the request appeared in its session and its report came back |
+| Grok | `report_args = ["--allow", "Bash(h2h-report*)"]` | 1.0.92 | Behaves: the request appeared in its session and its report came back. The session ran with the user's own setting `permission_mode = "always-approve"`, so whether the option is what let the report run was not shown |
 
 ### Streaming
 
@@ -494,6 +498,7 @@ An answer is shown while it is written. Each harness can print its events as JSO
 | Copilot CLI | `--output-format json --stream on -p` | `data.deltaContent` | In parts, as written | 1.0.114 | Behaves: the same answer began at 4.5 s and ended at 6.5 s |
 | Codex CLI | `exec --sandbox read-only --json` | `item.text`, where `item.type` is `agent_message` | A whole message at a time: Codex does not print parts | 0.172.0 | Behaves: the answer arrived whole at 5.9 s |
 | OpenCode | `run --standalone --agent plan --format json` | `part.text`, where `type` is `text` | A whole part at a time | 2.4.1 | Accepted: the JSON lines were read from a real run and the shape is in the tests. Not watched in the console |
+| Grok | `--permission-mode default --tools read_file,grep,list_dir --deny MCPTool --no-subagents --disable-web-search --output-format streaming-messages-json --include-partial-messages -p` | `event.delta.text` | In parts | 1.0.92 | Behaves: the text was read from a real run, and answers appeared through H2H. Timing was not measured |
 
 When a run fails, H2H shows what the harness itself said, such as a usage limit that was reached and when it resets, or a login that expired. A harness reports that in an event marked as an error, or prints it in place of its answer, and both are passed on. Only when it said nothing does H2H show the exit status, with the command to run by hand.
 
@@ -581,6 +586,7 @@ No harness offers a command that says whether it trusts a folder, so for the per
 | Codex CLI | `~/.codex/config.toml` | `projects`, `{project}`, `trust_level` | `trusted` | 0.172.0 | Loaded: doctor read the record Codex wrote for a trusted project, and reported it trusted |
 | Copilot CLI | `~/.copilot/config.json` | `trustedFolders` | `{project}` | 1.0.114 | Half: doctor read Copilot's file, which starts with `//` comment lines and held no trusted folder, and reported the project as not trusted. A record written by Copilot for a trusted folder was not seen, so the key is from its documentation only |
 | OpenCode | None: `no_trust_question = true` | | | 2.4.1 | Behaves: started in a new repository it went straight to its prompt, with no trust question |
+| Grok | `~/.grok/trusted_folders.toml` | `folders`, `{project}`, `trusted` | `true` | 1.0.92 | Behaves: doctor's check read the record Grok wrote when the user trusted a project. A worktree of that project opened without the question |
 
 A harness that moves or renames its record in a later version makes the check report "not trusted" until the config is corrected.
 
@@ -594,6 +600,7 @@ Every harness is checked the same way, from its config entry. How each one print
 | Codex CLI | `version_args = ["--version"]` | 0.172.0 | Behaves: doctor printed the version and got an answer |
 | Copilot CLI | `version_args = ["--version"]` | 1.0.114 | Behaves: doctor printed the version and got an answer |
 | OpenCode | `version_args = ["--version"]` | 2.4.1 | Behaves: doctor printed the version and got an answer, from its free model with no login |
+| Grok | `version_args = ["--version"]` | 1.0.92 | Accepted: it printed its version |
 
 ## Install
 
@@ -618,7 +625,7 @@ After each install H2H checks the result instead of trusting the installer's exi
 
 A harness left out is listed with the reason: already installed, up to date, does not run (under `--update`), no `install_command` in the config, or its installer (such as npm) is not installed. Sessions that are running keep the version they started with.
 
-The installer runs with the user's own environment, not the reduced one a harness gets, because it is the user's package manager and needs its settings. All three shipped harnesses are published as npm packages, so all three are installed the same way:
+The installer runs with the user's own environment, not the reduced one a harness gets, because it is the user's package manager and needs its settings. The shipped harnesses published as npm packages are installed with npm. Grok is installed by its own script, which runs a script fetched from `x.ai`:
 
 | Harness | `install_command` | `latest_command` | Checked on | Level reached |
 |---|---|---|---|---|
@@ -626,6 +633,7 @@ The installer runs with the user's own environment, not the reduced one a harnes
 | Codex CLI | `npm install -g @openai/codex@latest` | `npm view @openai/codex version` | npm 11.19.1 | `latest_command` behaves: it printed 0.172.0, and `install --update` reported the installed 0.172.0 as up to date. `install_command` was not run |
 | Copilot CLI | `npm install -g @github/copilot@latest` | `npm view @github/copilot version` | npm 11.19.1 | `latest_command` behaves: it printed 1.0.114. `install` offered it as not installed. `install_command` was not run |
 | OpenCode | `npm install -g @opencode/cli@latest` | `npm view @opencode/cli version` | npm 11.19.1 | `install_command` behaves: the user ran `install opencode` and 2.4.1 was installed and found. `latest_command` printed 2.4.1 |
+| Grok | `bash -c "set -o pipefail; curl -fsSL https://x.ai/cli/install.sh \| bash"`, the installer in its documentation | `grok update --check --json`, with the latest version picked out | 1.0.92 | `latest_command` behaves: it printed 1.0.92. `install_command` was not run |
 
 `install_command` was run for none of the three, because it changes what is installed for the user. The install, the check afterwards and the update are covered by tests with stand-in harnesses.
 

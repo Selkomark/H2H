@@ -2,7 +2,7 @@
 
 **Status: stage 1 of the [roadmap](docs/roadmap.md) is built: the `h2h` console, supervised sessions, and configuration. The rest is design, validated by three spikes.**
 
-H2H lets complete agent harnesses (Claude Code, Copilot CLI, Codex CLI, OpenCode and others) work as a team. Each harness owns a domain of responsibility, reports its status, and has its work checked and approved, instead of acting as a worker that answers one task and forgets.
+H2H lets complete agent harnesses (Claude Code, Copilot CLI, Codex CLI, OpenCode, Grok and others) work as a team. Each harness owns a domain of responsibility, reports its status, and has its work checked and approved, instead of acting as a worker that answers one task and forgets.
 
 A harness is a full agent product: a model plus its own loop, tools, permissions and ability to spawn sub-agents. H2H orchestrates whole harnesses that are opaque to each other. It does not define agents of its own.
 
