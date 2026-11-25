@@ -362,19 +362,25 @@ func (e *env) rm(ctx context.Context, args []string) error {
 		}
 		fmt.Fprintf(e.out, "Stopped %s.\n", info.ID)
 	}
-	// A workspace with uncommitted work is deleted only if the user says so.
+	// A workspace holding work that exists nowhere else is deleted only if
+	// the user says so.
 	force := false
 	if workspace.Exists(e.root, info.ID) {
-		changes, err := workspace.Changes(ctx, e.root, info.ID)
+		pending, err := workspace.Pending(ctx, e.root, info.ID)
 		question := ""
 		switch {
 		case errors.Is(err, workspace.ErrNotWorktree):
 			question = fmt.Sprintf("The workspace of %s is no longer a git worktree. Delete the folder and everything in it?", info.ID)
 		case err != nil:
 			return err
-		case len(changes) > 0:
-			fmt.Fprint(e.out, changeSummary(info.ID, changes))
-			question = fmt.Sprintf("%s has %s that will be lost. Delete it anyway?", info.ID, plural(len(changes), "uncommitted change"))
+		default:
+			if len(pending.Changes) > 0 {
+				fmt.Fprint(e.out, changeSummary(info.ID, pending.Changes))
+			}
+			if lost := atRisk(pending); lost != "" {
+				fmt.Fprintln(e.out, e.st.dim.Render("To keep this work, bring it onto the project's branch first with: ")+e.st.accent.Render("land "+info.ID))
+				question = fmt.Sprintf("%s has %s that will be lost. Delete it anyway?", info.ID, lost)
+			}
 		}
 		if question != "" {
 			if !e.ui.Confirm(question) {
@@ -392,6 +398,20 @@ func (e *env) rm(ctx context.Context, args []string) error {
 	}
 	fmt.Fprintf(e.out, "Removed %s.\n", info.ID)
 	return nil
+}
+
+// atRisk names the work that removing a workspace would lose: what is not
+// committed, and commits that are on no branch and were never landed. It
+// returns "" when nothing would be lost.
+func atRisk(pending workspace.Unlanded) string {
+	var parts []string
+	if n := len(pending.Changes); n > 0 {
+		parts = append(parts, plural(n, "uncommitted change"))
+	}
+	if pending.Commits > 0 && pending.Branch == "" {
+		parts = append(parts, plural(pending.Commits, "unlanded commit"))
+	}
+	return strings.Join(parts, " and ")
 }
 
 // maxListedChanges is how many uncommitted paths are named before the rest
@@ -511,6 +531,17 @@ func (e *env) argumentSuggestions(command string) []console.Suggestion {
 		}
 		if len(out) > 0 && (command == "stop" || command == "rm") {
 			out = append(out, console.Suggestion{Text: everything, Help: "Every harness, after one question"})
+		}
+	case "land":
+		// Only the harnesses that have something to land.
+		infos, err := session.List(e.root)
+		if err != nil {
+			return nil
+		}
+		for _, i := range infos {
+			if what := e.landable(context.Background(), i.ID); what != "" {
+				out = append(out, console.Suggestion{Text: i.ID, Help: what})
+			}
 		}
 	case "start":
 		cfg, err := config.Load(e.root)

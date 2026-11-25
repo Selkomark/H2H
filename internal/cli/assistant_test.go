@@ -67,6 +67,7 @@ func TestRunLinesAndPermitted(t *testing.T) {
 		{"ask ui what is left?", true, false, "", ""},
 		{"ask ui-1 add the login page", true, false, "", ""},
 		{"sessions", true, false, "", ""},
+		{"land ui-1", true, false, "", ""}, // it asks the user itself
 		{"start ui", true, true, "", ""},
 		{"stop ui-1", true, true, "", ""},
 		{"rm ui-1", true, true, "", ""},

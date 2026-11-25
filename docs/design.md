@@ -181,6 +181,8 @@ Results are typed and identical for every holder of a role. If each harness answ
 
 Code moves between owners through version control: the builder commits, and the tester checks out that commit in its own workspace. The commit reference travels on the ticket.
 
+Work reaches the project itself the same way. Each owner works in its own workspace, and the user brings accepted work onto the project's branch with `h2h land`, which shows what would land and asks first; [runtime.md](runtime.md#landing-work) describes it. The console's assistant runs it when the user says the work is accepted. Handing a commit from one owner's workspace to another's, and tickets to carry the reference, are not built yet.
+
 ## Example: build and test a UI
 
 1. A ticket asks for a UI feature. The builder owner implements it and reports a commit and a summary.

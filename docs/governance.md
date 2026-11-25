@@ -122,7 +122,7 @@ Tickets coordinate intent, and skills given to a harness are instructions. A har
 | Two owners edit the same files | Each domain owns a set of paths. A commit that touches files outside them is rejected |
 | Two harnesses pick up the same work | One owner per ticket, claimed with a lock |
 | One domain changes something another depends on | The interface between domains is a written contract. Changing it is its own ticket and notifies the owners that depend on it |
-| Parallel branches conflict when merged | Merges go through a queue: update to the latest version, re-run the tests as proof, then merge |
+| Parallel branches conflict when merged | Merges go through a queue: update to the latest version, re-run the tests as proof, then merge. Not built: for now the user lands one harness's work at a time with `h2h land`, which undoes a merge that conflicts |
 
 The first two are prevented outright. The last two cannot be prevented, and the mechanisms keep their cost contained.
 

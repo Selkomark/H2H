@@ -38,8 +38,13 @@ const (
 // whether the command changes something, in which case the user is asked
 // first. The config has its own flow and is not here, and neither is what
 // needs the terminal or belongs to the console itself.
+//
+// land changes the project and is not asked about here, because it always
+// asks the user itself, with the plan of what it would do in front of
+// them. A second question before that one would say less.
 var assistantCommands = map[string]bool{
 	"ps": false, "map": false, "logs": false, "sessions": false, "doctor": false, "ask": false,
+	"land":  false,
 	"start": true, "stop": true, "rm": true, "install": true,
 }
 
@@ -123,6 +128,9 @@ func (e *env) assistantPrompt(ctx context.Context, cfg config.Config) (string, e
 		"  start <harness | domain>    start a harness in its own workspace; a domain starts its owner, told its role\n" +
 		"  stop <id>                   stop a running harness\n" +
 		"  rm <id>                     remove a stopped harness and its workspace\n" +
+		"  land <id>                   bring a harness's work from its workspace onto the branch the project is on:\n" +
+		"                              H2H shows the user what would land and asks them before it changes the project;\n" +
+		"                              it offers to commit work the harness left uncommitted, and merges without pushing\n" +
 		"  logs <id>                   the terminal output of a harness so far\n" +
 		"  ask <id | harness | domain> <question>\n" +
 		"                              hand a request to a running harness: it is typed into that harness's own session,\n" +
@@ -136,6 +144,9 @@ func (e *env) assistantPrompt(ctx context.Context, cfg config.Config) (string, e
 		"  install [--update] [harness ...]\n" +
 		"                              install missing harnesses, or update installed ones\n" +
 		"The user is asked before start, stop, rm and install are run, and may decline. " +
+		"A harness works in its own workspace, a separate copy of the project, so its work is not in the project until it is landed. " +
+		"When the user accepts a harness's work, or wants it in the project, the code base or their branch, run land for that harness. " +
+		"Do not tell the user to run git for this, and do not ask the harness to merge, push or switch branches: land does it, and it asks the user itself. " +
 		"You cannot change the config: for that, tell the user to run /config. " +
 		"You cannot attach to a harness: the user does that with /attach <id>. " +
 		"When the user wants something done or found out in a domain, do not do it or answer it yourself: delegate it to that domain's harness with ask, and pass on what it reports. " +

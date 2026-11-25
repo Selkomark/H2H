@@ -54,7 +54,8 @@ h2h
 | `/attach [id]` | `h2h attach [id]` | Opens a running harness's terminal. Ctrl-\ leaves it running |
 | `/logs [-f] [id]` | `h2h logs [-f] [id]` | Prints or follows a harness's terminal log |
 | `/stop [id \| all]` | `h2h stop [id \| all]` | Stops a running harness, or all of them after one question |
-| `/rm [id \| all]` | `h2h rm [id \| all]` | Removes a harness and its workspace, asking before it stops a running one or discards uncommitted work. `all` removes every harness after one question |
+| `/rm [id \| all]` | `h2h rm [id \| all]` | Removes a harness and its workspace, asking before it stops a running one or discards work that was not committed or not landed. `all` removes every harness after one question |
+| `/land [id]` | `h2h land [id]` | Brings a harness's work from its workspace onto the branch the project is on. It shows what would land and asks first, offers to commit work the harness left uncommitted, and merges without pushing. `l` on the Harnesses tab does the same |
 | `/sessions [rm <session> \| rm all]` | `h2h sessions [rm <session> \| rm all]` | Lists the saved console sessions, or removes them. In the console it opens the Sessions tab: arrows select, Enter jumps into the session, `d` deletes it |
 | `/resume <session>` | | Switches the console to a saved session, as Enter on the Sessions tab does |
 | `/clear` | | Empties the console's page and carries on in the same session. The lines you entered stay in reach of the Up key |

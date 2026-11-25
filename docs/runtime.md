@@ -141,6 +141,23 @@ The schema is not designed; see [configuration.md](configuration.md).
 - **Trust scope.** Trusting the project also trusts whatever settings the repository carries, for every session. That is the user's existing decision, but H2H makes it apply to unattended runs.
 - **Codex's hook review.** Codex wants each hook reviewed by the user. The spikes skipped that with a flag meant for automation. Whether H2H should use that flag or have the user review H2H's hooks once is open.
 
+## Landing work
+
+A harness works in its workspace, so what it builds is not in the project until it is brought there. `h2h land [id]` does that, for any harness, with git alone:
+
+1. **Where to.** The target is the branch checked out in the project root. With no branch checked out, or a merge or rebase unfinished there, landing refuses and says why.
+2. **What there is.** H2H looks for commits in the workspace that the branch lacks, and for uncommitted and untracked files. With neither, it says there is nothing to land.
+3. **A running harness.** It may be in the middle of a change, so H2H asks before taking what it has so far.
+4. **Uncommitted work.** Only commits can be landed. H2H lists what is uncommitted and asks whether to commit it in the workspace, in one commit named after the harness. Declining stops there. Files that git ignores are never committed.
+5. **The plan.** H2H shows the target branch, the number of commits, the files they change, and whether it is a fast-forward or needs a merge commit, and asks. Nothing in the project has changed up to this point.
+6. **The landing.** The workspace's commit is merged by its hash: a fast-forward when the branch has not moved, a merge commit otherwise. This works the same when the harness stayed on the detached HEAD it started on and when it made a branch of its own, and it leaves no branch behind.
+
+If the merge conflicts, H2H undoes it, so the project is as it was, and the conflict is for the harness to settle in its workspace. If files in the project that are changed or untracked would be overwritten, git refuses before it touches anything, and H2H passes on what it said.
+
+Landing does not push, stop the harness or remove its workspace. Removing a harness (`h2h rm`) asks first when its workspace holds work that exists nowhere else: uncommitted changes, or commits on no branch that were never landed.
+
+What this is not: the merge queue of [governance.md](governance.md), which re-runs the declared checks before merging and is not built. Landing is the user's own decision, one harness at a time.
+
 ## How H2H and a harness communicate
 
 Reading a harness's status off its terminal screen is fragile, so H2H never does that. The harness tells H2H instead, in two ways.
@@ -278,6 +295,7 @@ Copying uses the system clipboard, and where there is none, as over SSH, asks th
 | `h2h logs [-f] [id]` | Prints or follows one harness session's terminal log | Built |
 | `h2h attach [id]` | Opens the harness session's terminal. Ctrl-\ leaves it running | Built |
 | `h2h stop [id \| all]`, `h2h rm [id \| all]` | Stops a harness session; removes one and its workspace. Removing a running one offers to stop it first. `all` acts on every harness after one question that says how many are running and how many hold uncommitted work | Built |
+| `h2h land [id]` | Brings a harness's work from its workspace onto the branch checked out in the project; see [Landing work](#landing-work) | Built |
 | `h2h --resume [session]`, `h2h -r` | Opens the console on a saved console session; see [Console sessions](#console-sessions) | Built |
 | `h2h sessions [rm <session> \| rm all]` | Lists the saved console sessions, or removes them | Built |
 | `h2h map` | Draws the domains as boxes and the flow of work between them as arrows, with each domain's setup under the drawing. In the console, `/map` opens the Map tab instead, where a domain is selected and inspected; see [responsibility-map.md](responsibility-map.md) | Built |
