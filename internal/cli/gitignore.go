@@ -33,7 +33,9 @@ func projectIgnores(root string) []workspace.IgnoreEntry {
 	}
 	state = filepath.ToSlash(state)
 	return []workspace.IgnoreEntry{
-		{Pattern: "/" + state + "/", Sample: state + "/"},
+		// Without a trailing slash, so the line names .h2h itself and not
+		// only what is under it.
+		{Pattern: "/" + state, Sample: state + "/"},
 		// Matches the name configApply gives the file: h2h.toml.<pid>.tmp.
 		{Pattern: "/" + config.FileName + ".*.tmp", Sample: config.FileName + ".0.tmp"},
 	}

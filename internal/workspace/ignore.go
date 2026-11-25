@@ -17,7 +17,7 @@ const IgnoreFile = ".gitignore"
 
 // IgnoreEntry is a line wanted in a project's .gitignore.
 type IgnoreEntry struct {
-	// Pattern is the line itself, such as "/.h2h/".
+	// Pattern is the line itself, such as "/.h2h".
 	Pattern string
 	// Sample is a path the pattern covers, relative to the project root,
 	// such as ".h2h/". Git is asked about it to find out whether something

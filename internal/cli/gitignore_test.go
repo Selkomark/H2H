@@ -11,7 +11,7 @@ import (
 	"github.com/Selkomark/H2H/internal/config"
 )
 
-const addedMessage = "Added /.h2h/ and /h2h.toml.*.tmp to .gitignore, so H2H's own files stay out of the project."
+const addedMessage = "Added /.h2h and /h2h.toml.*.tmp to .gitignore, so H2H's own files stay out of the project."
 
 func readGitignore(t *testing.T, root string) string {
 	t.Helper()
@@ -30,7 +30,7 @@ func TestApplyingTheConfigIgnoresH2HFiles(t *testing.T) {
 		t.Fatalf("configApply = %v, %v", applied, err)
 	}
 	text := readGitignore(t, e.root)
-	for _, want := range []string{ignoreComment + "\n", "/.h2h/\n", "/h2h.toml.*.tmp\n"} {
+	for _, want := range []string{ignoreComment + "\n", "/.h2h\n", "/h2h.toml.*.tmp\n"} {
 		if !strings.Contains(text, want) {
 			t.Errorf(".gitignore lacks %q:\n%s", want, text)
 		}
@@ -66,8 +66,8 @@ func TestStartingAHarnessIgnoresH2HFiles(t *testing.T) {
 	if err := e.start(context.Background(), nil); err == nil {
 		t.Fatal("start succeeded with a file in place of the state directory")
 	}
-	if text := readGitignore(t, e.root); !strings.Contains(text, "/.h2h/\n") {
-		t.Errorf("start did not add /.h2h/ to .gitignore:\n%s", text)
+	if text := readGitignore(t, e.root); !strings.Contains(text, "/.h2h\n") {
+		t.Errorf("start did not add /.h2h to .gitignore:\n%s", text)
 	}
 	if !strings.Contains(out.String(), addedMessage) {
 		t.Errorf("output does not say what was added:\n%s", out)
@@ -104,7 +104,7 @@ func TestDoctorChecksTheGitignore(t *testing.T) {
 	if err := e.doctor(context.Background(), nil); err != nil && !strings.Contains(err.Error(), "doctor found") {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out.String(), "! .gitignore") || !strings.Contains(out.String(), "does not leave out /.h2h/ and /h2h.toml.*.tmp") {
+	if !strings.Contains(out.String(), "! .gitignore") || !strings.Contains(out.String(), "does not leave out /.h2h and /h2h.toml.*.tmp") {
 		t.Errorf("doctor did not warn about the missing entries:\n%s", out)
 	}
 	if _, err := os.Stat(filepath.Join(e.root, ".gitignore")); !os.IsNotExist(err) {

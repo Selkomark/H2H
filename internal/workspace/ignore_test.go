@@ -9,7 +9,7 @@ import (
 )
 
 var testEntries = []IgnoreEntry{
-	{Pattern: "/.h2h/", Sample: ".h2h/"},
+	{Pattern: "/.h2h", Sample: ".h2h/"},
 	{Pattern: "/h2h.toml.*.tmp", Sample: "h2h.toml.0.tmp"},
 }
 
@@ -37,10 +37,10 @@ func TestIgnoreCreatesTheFile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := []string{"/.h2h/", "/h2h.toml.*.tmp"}; !slices.Equal(added, want) {
+	if want := []string{"/.h2h", "/h2h.toml.*.tmp"}; !slices.Equal(added, want) {
 		t.Errorf("added = %q, want %q", added, want)
 	}
-	if got, want := readIgnore(t, root), "# H2H\n/.h2h/\n/h2h.toml.*.tmp\n"; got != want {
+	if got, want := readIgnore(t, root), "# H2H\n/.h2h\n/h2h.toml.*.tmp\n"; got != want {
 		t.Errorf(".gitignore = %q, want %q", got, want)
 	}
 	fi, err := os.Stat(filepath.Join(root, IgnoreFile))
@@ -53,8 +53,8 @@ func TestIgnoreAppendsAndLeavesExistingLinesAlone(t *testing.T) {
 	tests := []struct {
 		name, before, want string
 	}{
-		{"with a final newline", "node_modules/\n*.log\n", "node_modules/\n*.log\n\n# H2H\n/.h2h/\n/h2h.toml.*.tmp\n"},
-		{"without a final newline", "node_modules/\n*.log", "node_modules/\n*.log\n\n# H2H\n/.h2h/\n/h2h.toml.*.tmp\n"},
+		{"with a final newline", "node_modules/\n*.log\n", "node_modules/\n*.log\n\n# H2H\n/.h2h\n/h2h.toml.*.tmp\n"},
+		{"without a final newline", "node_modules/\n*.log", "node_modules/\n*.log\n\n# H2H\n/.h2h\n/h2h.toml.*.tmp\n"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -86,6 +86,8 @@ func TestIgnoreTwiceAddsNothing(t *testing.T) {
 }
 
 func TestIgnoreSkipsWhatIsAlreadyListed(t *testing.T) {
+	// A project set up before the line lost its trailing slash still has
+	// the older form, which covers the same directory.
 	root := newRepo(t)
 	writeIgnore(t, root, "/.h2h/\n")
 	added, err := Ignore(context.Background(), root, testComment, testEntries)
@@ -135,8 +137,8 @@ func TestIgnoreDoesNotCountTheStateDirectorysOwnFile(t *testing.T) {
 		t.Fatal(err)
 	}
 	added, err := Ignore(context.Background(), root, testComment, testEntries)
-	if err != nil || !slices.Contains(added, "/.h2h/") {
-		t.Errorf("added = %q, %v; want /.h2h/ added", added, err)
+	if err != nil || !slices.Contains(added, "/.h2h") {
+		t.Errorf("added = %q, %v; want /.h2h added", added, err)
 	}
 }
 
@@ -159,5 +161,17 @@ func TestMissingIgnoresChangesNothing(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(root, IgnoreFile)); !os.IsNotExist(err) {
 		t.Errorf("MissingIgnores created a .gitignore: %v", err)
+	}
+}
+
+func TestIgnoreSkipsTheSameLine(t *testing.T) {
+	root := newRepo(t)
+	writeIgnore(t, root, "/.h2h\n")
+	added, err := Ignore(context.Background(), root, testComment, testEntries)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(added, []string{"/h2h.toml.*.tmp"}) {
+		t.Errorf("added = %q; want only the entry that was missing", added)
 	}
 }
