@@ -1,120 +1,205 @@
-# H2H: Harness-to-Harness Orchestration
+# H2H
 
-**Status: stage 1 of the [roadmap](docs/roadmap.md) is built: the `h2h` console, supervised sessions, and configuration. The rest is design, validated by three spikes.**
+**Run your coding agents as a team, from one console.**
 
-H2H lets complete agent harnesses (Claude Code, Copilot CLI, Codex CLI, OpenCode, Grok and others) work as a team. Each harness owns a domain of responsibility, reports its status, and has its work checked and approved, instead of acting as a worker that answers one task and forgets.
+H2H starts Claude Code, Copilot CLI, Codex CLI, OpenCode and Grok side by side in your project. Each one works in its own copy of the code. You see who is running and who needs you, hand them work, and decide what lands in your branch.
 
-A harness is a full agent product: a model plus its own loop, tools, permissions and ability to spawn sub-agents. H2H orchestrates whole harnesses that are opaque to each other. It does not define agents of its own.
+> **Status: early.** The console, sessions and configuration work today. Tickets, approval of work, budgets and the web UI are [planned](docs/roadmap.md) and not built. H2H is developed on macOS. Linux has not been checked, and Windows is not supported yet.
 
-The motivating case: one harness builds a UI, another tests it because it is better at UI testing, and a third owns customer service end to end. A human sees the status of each side by side and approves or rejects their work.
+In H2H, a **harness** is one of these agent products, with its own model, tools and login.
 
-## Why
+## What you can do
 
-A team of harnesses that own domains should handle multi-part projects better than a central orchestrator directing every step:
+- **Run several agents at once.** Each gets its own [git worktree](https://git-scm.com/docs/git-worktree), so they do not edit the same files.
+- **Ask in plain words.** Type what you want in the console. Your default agent can start others, hand them work and report back. It asks you before it starts, stops or removes anything.
+- **Give each agent a role.** One owns the frontend, another tests it. H2H tells each its role when it starts.
+- **Step in at any time.** Attach to an agent's own screen, then leave it running.
+- **Decide what you keep.** Work reaches your branch only when you land it. H2H does not push.
+- **Keep them running.** Agents carry on after you close the console, and you can resume the console later.
 
-- Each owner keeps the context, tools and access for its domain, so no single orchestrator has to hold the detail of everything.
-- Work is checked by someone who did not produce it: another harness, a script or a human.
-- Harnesses are interchangeable behind a common protocol, so a harness with a different strength or budget can join later without changing the rest.
+## Before you start
 
-The expected cost is coordination overhead. Similar tools exist and are known to be expensive to run, so cost is a design constraint from the start; see [docs/cost.md](docs/cost.md) and [docs/prior-art.md](docs/prior-art.md).
+You need:
 
-## Intended shape
+- git 2.17 or later, and a project that is a git repository with at least one commit
+- Go 1.27.4 or later, to build H2H
+- at least one supported agent, installed and signed in
 
-- **Tool:** a single `h2h` binary, written in Go. Run with no arguments it opens a full-screen console, an operations centre with the input at the bottom, where the user types `/commands` or plain questions and suggestions appear while typing. Every command also works from the shell, and `h2h serve --port <n>` adds a web UI.
-- **Default harness:** one harness in the pool is the default. It runs new sessions when none is named and answers what the user types into the console. H2H ships with Claude Code as the default, and the user can change it, for example where a company allows only Copilot or Codex.
-- **Sessions:** each harness runs in its own terminal session and workspace under a small keeper process, so sessions survive a crash of H2H and can be rejoined.
-- **Visibility:** the user can list active harnesses, follow their logs, and jump into any session's terminal.
-- **Reporting:** a session's state comes from the harness's own hooks, and harnesses report proof through a tool H2H provides.
-- **Core:** a ticket system with approval rules and budgets, enforced in code.
-- **Team:** a pool of harnesses, one owner per domain, optionally with one harness acting as coordinator.
-- **Checking:** the builder always checks its own work, and an independent tester is the gate after it.
-- **Permissions:** rules declared in config answer a harness's permission requests on the user's behalf. Anything not covered goes to the user as a dialog in the console, or is allowed in auto mode. Built for Claude Code; see [docs/permissions.md](docs/permissions.md#what-is-built).
-- **Planning:** kanban by default. An optional project manager adds estimation, sprints bounded by budget, and a retro.
-- **Cost:** coordination is done by code first, small agents second and a harness last.
-- **Configuration:** declared as code, with the CLI and the UI as views onto it.
+H2H uses your own logins and subscriptions. Whatever you ask an agent to do counts against that agent's plan.
 
-## Build and run
+## Install
 
-Requires Go 1.27 or later, git, and at least one harness installed and logged in.
+There are no ready-made downloads yet, so build H2H from source:
 
+```sh
+git clone https://github.com/Selkomark/H2H.git
+cd H2H
+go build -o ~/.local/bin/h2h ./cmd/h2h
 ```
-go build -o bin/h2h ./cmd/h2h
-cd <a git repository>
+
+Any folder on your `PATH` works in place of `~/.local/bin`. To update, run `git pull` and build again.
+
+## Quick start
+
+Go to your project, then check your setup:
+
+```sh
+cd your-project
 h2h doctor
-h2h install
+```
+
+`doctor` tells you what is missing and how to fix it. To check logins, it asks each installed agent for one short answer.
+
+Missing an agent? `h2h install` shows what it can install and asks before it installs anything. It uses npm for most agents. For Grok, it downloads and runs the install script from `x.ai`.
+
+Then open the console:
+
+```sh
 h2h
 ```
 
-`h2h doctor` says what is missing, if anything, and how to fix it. `h2h install` installs the harnesses that are missing, after asking which.
+Claude Code is the default agent. To use another one, run `/config`.
 
-| In the console | From the shell | Does |
+A first session looks like this:
+
+1. Type `/start`. The default agent starts in its own copy of your project.
+2. Type `/attach`, give it a task, and press `Ctrl-\` to return. It keeps working.
+3. When the work is ready, type `/land`. H2H shows what would change and asks before it merges.
+
+Or skip the commands and type what you want in plain words.
+
+## The console
+
+Type `/` to see the commands. There are tabs for the **Console**, a **Map** of your team, your **Harnesses** (running out of listed) and saved **Sessions**. The frame glows while something is working.
+
+| In the console | From the shell | What it does |
 |---|---|---|
-| `/start [harness \| domain]` | `h2h start [harness \| domain]` | Starts a session in its own worktree under `.h2h/workspaces/`. Naming a domain starts its owner and passes its role as XML |
-| `/ps` | `h2h ps` | Lists the harnesses that were started. In the console it opens the Harnesses tab, whose label counts the harnesses running out of those listed, such as `Harnesses (3/4)`, in amber when one waits for the user. The tab updates live: arrows select, Enter attaches, `s` stops, `d` deletes, and `S` and `D` do the same to all of them. A harness stopped at a prompt in its own terminal shows as waiting for you, and the console says so; see [docs/runtime.md](docs/runtime.md#waiting-for-you) |
-| `/attach [id]` | `h2h attach [id]` | Opens a running harness's terminal. Ctrl-\ leaves it running |
-| `/logs [-f] [id]` | `h2h logs [-f] [id]` | Prints or follows a harness's terminal log |
-| `/stop [id \| all]` | `h2h stop [id \| all]` | Stops a running harness, or all of them after one question |
-| `/rm [id \| all]` | `h2h rm [id \| all]` | Removes a harness and its workspace, asking before it stops a running one or discards work that was not committed or not landed. `all` removes every harness after one question |
-| `/land [id]` | `h2h land [id]` | Brings a harness's work from its workspace onto the branch the project is on. It shows what would land and asks first, offers to commit work the harness left uncommitted, and merges without pushing. `l` on the Harnesses tab does the same |
-| `/sessions [rm <session> \| rm all]` | `h2h sessions [rm <session> \| rm all]` | Lists the saved console sessions, or removes them. In the console it opens the Sessions tab: arrows select, Enter jumps into the session, `d` deletes it |
-| `/resume <session>` | | Switches the console to a saved session, as Enter on the Sessions tab does |
-| `/cls` | | Empties the console's page and carries on in the same session and the same conversation with the default harness. The lines you entered stay in reach of the Up key |
-| `/clear` | | Starts a new conversation with the default harness, in the same console session. The page stays as it is |
-| | `h2h --resume [session]`, or `-r` | Opens the console on an earlier session, with its page and the lines that were entered. Without a session it resumes the only one, or asks which |
-| `/map` | `h2h map` | Draws the config as a graph: a box for each domain with its owner, and arrows for the flow of work between them. In the console it opens the Map tab, where the arrow keys or a click select a domain and Enter opens what it is for and who does what in it: the harness in charge and a table of each sub-agent's job. "Show more" answers the rest in plain words: is it running, which files, when it can start, where its work goes. From the shell it prints the drawing with each domain's setup under it; see [docs/responsibility-map.md](docs/responsibility-map.md) |
-| `/install [--update] [harness ...]` | `h2h install [--update] [harness ...]` | Installs the harnesses that are missing, at their latest version. `--update` checks the installed ones for a newer version instead. Either way a dialog lists what was found, ticked, and only what stays ticked is installed; see [docs/runtime.md](docs/runtime.md#install) |
-| `/doctor` | `h2h doctor` | Checks that everything H2H needs is in place: git, the project, the state directory, sessions, the config, and every harness: installed, running, logged in, and trusting the project. Proving a login asks each harness for one short answer. Changes nothing; see [docs/runtime.md](docs/runtime.md#doctor) |
-| `/config` | `h2h config` | Sets the config up in a conversation: the default harness asks how the team should be arranged, and once you say you are done it writes the file, doctor checks it and the map shows the result |
-| `/config --manual` | `h2h config --manual` | Opens the config in your editor, starting from the shipped one if the project has none |
-| `/config show` | `h2h config show` | Prints the config |
-| `/ask <id \| harness \| domain> <request>` | `h2h ask <id \| harness \| domain> <request>` | Hands a request to a running harness: it is typed into that harness's own session, where you can attach and watch, and its report is printed when it is done. If none is running for that name, the harness answers in a fresh read-only run instead |
-| plain text | | Talks to the default harness, which sees the map, the domains and the running harnesses, and can run H2H's commands itself: list, start, stop, remove, read logs, ask a domain's owner, and more. It asks before anything that changes something, and cannot change the config. Its answer appears as it is written. Each console session is one conversation with it, which it remembers, and which resuming the session continues. The input stays open while it answers: a message typed meanwhile is queued and sent with any others when the answer ends, and a `/command` runs at once; see [docs/runtime.md](docs/runtime.md#typing-while-a-command-runs) |
+| `/start [agent \| domain]` | `h2h start` | Starts an agent, or the agent that owns a domain |
+| `/ps` | `h2h ps` | Shows your agents and their state |
+| `/ask <id> <request>` | `h2h ask` | Sends work to a running agent and shows its report |
+| `/attach [id]` | `h2h attach` | Opens an agent's own screen. `Ctrl-\` leaves it running |
+| `/logs [-f] [id]` | `h2h logs` | Shows or follows an agent's output |
+| `/land [id]` | `h2h land` | Brings an agent's work into your branch |
+| `/stop [id \| all]` | `h2h stop` | Stops agents |
+| `/rm [id \| all]` | `h2h rm` | Removes agents and their copies of the project. It asks before discarding work |
+| `/map` | `h2h map` | Shows who owns what, and the order of work |
+| `/config` | `h2h config` | Sets up your team in a conversation |
+| `/doctor` | `h2h doctor` | Checks your setup |
+| `/install [--update]` | `h2h install` | Installs or updates agents |
+| `/sessions` | `h2h sessions` | Lists or removes saved console sessions |
+| `/resume <session>` | `h2h --resume` | Returns to a saved console session |
+| `/clear` | | Starts a new conversation with the default agent |
+| `/cls` | | Clears the screen and keeps the conversation |
+| `/exit` | | Leaves the console. Agents keep running |
 
-Harnesses keep running when the console exits, and the console's own session is saved so it can be resumed; see [docs/runtime.md](docs/runtime.md#console-sessions). The config is `h2h.toml` at the project root; see [docs/configuration.md](docs/configuration.md).
+Run `h2h help` for the full list.
 
-## What has been validated
+## Set up your team
 
-Three short spikes tested the riskiest assumptions on Claude Code, Copilot CLI and Codex CLI, on a small sample. None invalidated the design.
+H2H works without any setup. To give agents roles, run `/config` and describe your team, or write `h2h.toml` in your project's root:
 
-- **Session state:** the state of a harness (working, waiting for input, idle, hung, exited) can be read from its own hooks, without reading its screen.
-- **Permissions:** a permission request can be answered in code: allow, deny with instructions the model then follows, or hold for the user's answer. No prompt reached the screen.
-- **Baseline:** on one small task, a builder and a tester in separate sessions cost about the same as one harness using sub-agents. Testers from a different product found two real defects that a same-product tester and 75 hidden tests missed.
+```toml
+default_harness = "claude"
 
-The detail of each test is in [docs/findings.md](docs/findings.md). The spike code was throwaway and is not part of this repository.
+# The agents this team uses. A name and its command are enough.
+[harness.claude]
+command = "claude"
 
-## Principles
+[harness.codex]
+command = "codex"
 
-- **Clean-room build.** H2H may share ideas and architecture with existing tools, but none of their code is copied into it, and it is not an extension of any of them. See [docs/prior-art.md](docs/prior-art.md).
-- **Permissive dependencies only,** so a company can adopt H2H without licence problems. See [docs/licensing.md](docs/licensing.md).
-- **One behaviour for every harness.** Differences between harnesses are hidden behind small adapters or declared in config. See [docs/runtime.md](docs/runtime.md).
+[domain.ui]
+harness = "claude"
+does = "The web frontend"
+paths = ["web/**"]
 
-## Documentation
+[domain.e2e]
+harness = "codex"
+does = "End-to-end tests"
+depends_on = ["ui"]
 
-Read in this order:
+[permissions]
+mode = "ask"
+allow = ["git status*", "git diff*", "npm test*"]
+deny = ["git push*"]
+```
 
-- [docs/design.md](docs/design.md): architecture, roles and the communication model
-- [docs/runtime.md](docs/runtime.md): sessions, keepers, workspaces and trust, hooks, monitoring, crash recovery and the choice of Go
-- [docs/governance.md](docs/governance.md): tickets, proof of work, who checks the work, approvals, autonomy and intended use
-- [docs/permissions.md](docs/permissions.md): how H2H answers a harness's permission requests on the user's behalf
-- [docs/control.md](docs/control.md): the plan for running every harness from H2H with the same commands
-- [docs/planning.md](docs/planning.md): kanban and managed modes, the project manager, estimation, sprints and the retro
-- [docs/cost.md](docs/cost.md): where cost comes from and how the design limits it
-- [docs/configuration.md](docs/configuration.md): config as code, the CLI and the UI
-- [docs/responsibility-map.md](docs/responsibility-map.md): who owns what, and how it is drawn in the console and later the web UI
-- [docs/authentication.md](docs/authentication.md): the four authentication problems and how to approach each
-- [docs/licensing.md](docs/licensing.md): which dependency licences are allowed, and how that is checked
-- [docs/prior-art.md](docs/prior-art.md): existing projects, where H2H intends to differ, and the clean-room rule
-- [docs/risks.md](docs/risks.md): gaps found in the design review, with proposed directions
-- [docs/findings.md](docs/findings.md): what the validation spikes tested, their results, and what they change in the design
-- [docs/roadmap.md](docs/roadmap.md): build stages and open questions
+A **domain** is an area of responsibility with one agent in charge. `/start ui` starts its owner. `paths` and `depends_on` describe the work to your agents and the map; H2H does not enforce them.
 
-Diagrams in these documents are Mermaid and follow the rules in `.claude/skills/mermaid-diagrams/`.
+List every agent your team uses. For a built-in agent, H2H fills in any setting you leave out. You can commit `h2h.toml` with your project. The [configuration guide](docs/configuration.md) lists every setting.
 
-Anything built or tested for one harness is built and tested for every harness, following `.claude/skills/harness-parity/`.
+## Supported agents
 
-Go code follows the package layout, dependency rule and principles (least privilege, KISS, DRY) in `.claude/skills/go-architecture/`.
+| Agent | When it stops to ask you something | `[permissions]` rules apply |
+|---|---|---|
+| Claude Code | Permission requests appear as a dialog in the console. Answer other questions after `/attach` | Yes |
+| Copilot CLI | The console says it is waiting. Answer after `/attach` | No |
+| Codex CLI | The console says it is waiting. Answer after `/attach` | No |
+| OpenCode | The console can only say it **may** be waiting, during an `/ask` | No |
+| Grok | The console can only say it **may** be waiting, during an `/ask` | No |
 
-AI agents working on this repository start with [AGENTS.md](AGENTS.md).
+For every agent except Claude Code, its own permission settings decide what it may do. How far each feature has been tested differs between agents; the [runtime guide](docs/runtime.md) records it for each.
+
+## Stay safe
+
+- **Check your agents' own permissions.** An agent set to approve everything, such as Grok with `permission_mode = "always-approve"`, still does so inside H2H. The `[permissions]` rules above do not stop it.
+- **A separate copy is not a sandbox.** A git worktree keeps agents' edits apart. It does not stop an agent from reaching the rest of your computer.
+- **You grant folder trust.** If H2H cannot confirm that an agent trusts your project, it will not send it a request, and asks you to attach and answer yourself.
+- **Be careful with `mode = "auto"`.** It allows every permission request that reaches H2H unless a `deny` rule matches.
+
+## If something goes wrong
+
+Start with `h2h doctor`.
+
+| You see | Try this |
+|---|---|
+| An agent is "installed but does not run" | Run `/install <agent>`. A terminal app can put a placeholder command on your `PATH` that only looks like the agent |
+| An agent is installed but cannot answer | Open the agent yourself. Check that you are signed in and that its selected model works with your plan |
+| H2H will not send a request because of trust | Use `/attach <id>`. Answer the trust question only if you trust the project, then give the request there |
+| An agent is waiting | Use `/attach <id>`, answer, and press `Ctrl-\` |
+| The glow or screen updates feel slow, for example over SSH | The glow redraws the whole screen while work runs. Setting `NO_COLOR=1` turns it off, along with other colour |
+
+## Your files
+
+H2H keeps its sessions, logs and project copies in `.h2h/` in your project, and adds it to your `.gitignore`. Logs and saved console sessions can contain anything shown on screen, so treat them as private. Some short-lived working files are kept in `/tmp/h2h-<your user id>/`.
+
+To remove H2H from a project, land any work you want to keep, run `h2h rm all`, then delete `.h2h/` and `h2h.toml`. To uninstall it, delete the `h2h` program.
+
+## Playground
+
+[Selkomark/h2h-playground](https://github.com/Selkomark/h2h-playground) is a separate project for trying H2H on. Its `h2h.toml` shows a team with domains, and the work in it is under `projects/`.
+
+## Where H2H is heading
+
+The goal is a team in which each agent owns a domain, reports its progress, and has its work checked and approved. See the [design](docs/design.md), the [roadmap](docs/roadmap.md), and the plan for [controlling every agent from H2H](docs/control.md).
+
+## For contributors
+
+Read [AGENTS.md](AGENTS.md), which is written for AI agents and applies to people too. To check a change:
+
+```sh
+gofmt -l .
+go vet ./...
+go test ./...
+```
+
+H2H is written from scratch and copies no code from similar tools ([prior art](docs/prior-art.md)), and it uses only [permissively licensed dependencies](docs/licensing.md). Go code follows `.claude/skills/go-architecture/`, a change for one agent covers them all (`.claude/skills/harness-parity/`), and diagrams follow `.claude/skills/mermaid-diagrams/`.
+
+| Document | About |
+|---|---|
+| [Design](docs/design.md) | Architecture and roles |
+| [Runtime](docs/runtime.md) | Sessions, workspaces, the console and each command |
+| [Configuration](docs/configuration.md) | Every setting |
+| [Permissions](docs/permissions.md) | How permission requests are answered |
+| [Responsibility map](docs/responsibility-map.md) | Domains and the map |
+| [Control](docs/control.md) | Planned controls for running agents |
+| [Governance](docs/governance.md) | Tickets, proof and approvals |
+| [Planning](docs/planning.md) | Kanban and managed modes |
+| [Cost](docs/cost.md) | Where cost comes from |
+| [Authentication](docs/authentication.md) | Logins and access |
+| [Risks](docs/risks.md) | Open gaps |
+| [Findings](docs/findings.md) | What has been tested |
+| [Roadmap](docs/roadmap.md) | Build stages and open questions |
 
 ## Licence
 
