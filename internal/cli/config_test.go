@@ -191,7 +191,7 @@ func TestApplyShowsTheChangesAndThenTheMap(t *testing.T) {
 	e, out := doctorEnv(t, guideConf)
 	e.ui = &scriptedUI{}
 	next := guideConf + "[domain.api]\nharness = \"guide\"\n[domain.ui]\nharness = \"guide\"\ndepends_on = [\"api\"]\n  [[domain.ui.subagent]]\n  role = \"coder\"\n  [[domain.ui.subagent]]\n  role = \"reviewer\"\n"
-	if applied, err := e.configApply(guideConf, true, next); err != nil || applied {
+	if applied, err := e.configApply(context.Background(), guideConf, true, next); err != nil || applied {
 		t.Fatalf("configApply = %v, %v", applied, err)
 	}
 	shown := out.String()

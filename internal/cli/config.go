@@ -34,7 +34,7 @@ func (e *env) config(ctx context.Context, args []string) error {
 	case len(args) == 1 && args[0] == "show":
 		return e.configShow()
 	case len(args) == 1 && args[0] == manualFlag:
-		return e.configEdit()
+		return e.configEdit(ctx)
 	}
 	return errors.New("usage: config [show | " + manualFlag + "]")
 }
@@ -67,7 +67,7 @@ func (e *env) configShow() error {
 // configEdit opens the config in the user's editor, on a copy, and applies
 // the result only if it is valid and the user confirms. A project without
 // a config starts from the one H2H ships with.
-func (e *env) configEdit() error {
+func (e *env) configEdit(ctx context.Context) error {
 	if !term.IsTerminal(int(e.in.Fd())) {
 		return errors.New("config " + manualFlag + " needs a terminal")
 	}
@@ -93,7 +93,7 @@ func (e *env) configEdit() error {
 			}
 			continue
 		}
-		applied, err := e.configApply(current, exists, draft)
+		applied, err := e.configApply(ctx, current, exists, draft)
 		if err != nil || applied || !e.ui.Confirm("Edit it again?") {
 			return err
 		}
@@ -229,7 +229,7 @@ func (e *env) configGuide(ctx context.Context) error {
 
 		closeChat()
 		if proposal != current || !exists {
-			applied, err := e.configApply(current, exists, proposal)
+			applied, err := e.configApply(ctx, current, exists, proposal)
 			if err != nil {
 				return err
 			}
@@ -353,7 +353,7 @@ func conversation(turns []string) string {
 
 // configApply is the plan-and-apply step: show the difference, ask, write.
 // It reports whether the config was written.
-func (e *env) configApply(current string, exists bool, next string) (bool, error) {
+func (e *env) configApply(ctx context.Context, current string, exists bool, next string) (bool, error) {
 	// Two things and no more: the lines that change, and then, last and
 	// so right above the question, the map of what the config sets up.
 	// The map is what the user checks their intent against.
@@ -380,6 +380,7 @@ func (e *env) configApply(current string, exists bool, next string) (bool, error
 		return false, err
 	}
 	fmt.Fprintln(e.out, e.st.good.Render("Applied.")+" Harnesses that are running keep the settings they started with.")
+	e.keepOutOfGit(ctx)
 	return true, nil
 }
 

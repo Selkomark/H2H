@@ -121,6 +121,7 @@ func (e *env) start(ctx context.Context, args []string) error {
 		return fmt.Errorf("harness %s: the program %q is not installed or not on PATH", name, h.Command)
 	}
 
+	e.keepOutOfGit(ctx)
 	info, err := session.Create(e.root, idBase)
 	if err != nil {
 		return err

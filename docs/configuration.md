@@ -153,6 +153,8 @@ Declared config and runtime state are kept apart. A config file that fills up wi
 
 Secrets are never in the config. The config names a secret, and the value lives in a secret store or the environment.
 
+The config is committed with the project, and the runtime state is kept out of it: H2H keeps that state in `.h2h/` and adds `/.h2h/` to the project's `.gitignore` when the config is applied or a harness is started. See [runtime.md](runtime.md#state-directory).
+
 ## Plan and apply
 
 A config change does not take effect directly. A plan step shows the difference first, for example "this gives the support owner write access to the deploy pipeline". Permission changes are the riskiest edits in the system, and the preview is cheap protection.

@@ -124,6 +124,7 @@ func (d *diagnosis) system(ctx context.Context) {
 		} else {
 			d.ok("state directory", "writable")
 		}
+		d.gitignore(ctx)
 	}
 
 	if err := keeper.Check(e.root); err != nil {
@@ -138,6 +139,27 @@ func (d *diagnosis) system(ctx context.Context) {
 		d.warn("editor", argv[0]+" is not installed or not on PATH", "set EDITOR to an installed editor; only \"config "+manualFlag+"\" needs it")
 	} else {
 		d.ok("editor", argv[0])
+	}
+}
+
+// gitignore checks that git leaves H2H's own files out of the project.
+// It only reports: the file is put right when the config is applied or a
+// harness is started.
+func (d *diagnosis) gitignore(ctx context.Context) {
+	entries := projectIgnores(d.e.root)
+	missing, err := workspace.MissingIgnores(ctx, d.e.root, entries)
+	switch {
+	case err != nil:
+		d.warn(workspace.IgnoreFile, err.Error(), "check that git can read the project's "+workspace.IgnoreFile)
+	case len(missing) > 0:
+		lines := make([]string, len(missing))
+		for n, m := range missing {
+			lines[n] = m.Pattern
+		}
+		d.warn(workspace.IgnoreFile, "does not leave out "+strings.Join(lines, " and "),
+			"starting a harness adds it, or add it yourself: "+strings.Join(lines, ", "))
+	default:
+		d.ok(workspace.IgnoreFile, "H2H's own files are left out of git")
 	}
 }
 

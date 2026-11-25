@@ -61,6 +61,10 @@ The keeper is the `h2h` binary started in an internal mode, so there is still on
 
 One entry per session, written by its keeper, plus the ticket store (for example SQLite). Because listing, logs and attaching read from here and from the keepers' sockets, they keep working even when the orchestrator is not running.
 
+The state directory is `.h2h/` at the project root. Everything H2H keeps while it runs is in it: sessions and their logs, the workspaces, saved console sessions, permission requests and the session counters. Only two things H2H writes are outside it: `h2h.toml`, the config, which is meant to be committed, and `h2h.toml.<pid>.tmp`, which the config is written to before it replaces `h2h.toml` and which is left behind only if H2H stops in between.
+
+So that none of this ends up in the project, H2H adds `/.h2h/` and `/h2h.toml.*.tmp` to the project's `.gitignore` whenever the config is applied and whenever a harness is started, and says so the first time. It creates the file if there is none and otherwise only appends, under a comment line starting `# H2H`, leaving the lines already there as they are. It skips a line the file already has, and a path git already ignores by another rule, such as a broader pattern or the user's global excludes file. It never stages or commits. The state directory also carries a `.gitignore` of its own that ignores everything in it, which keeps it out of git even if the project's lines are removed; H2H puts them back at the next start.
+
 ## Sessions and workspaces
 
 - **Session.** One running harness with its own history. H2H records the harness's own session ID so the session can be resumed later.
@@ -453,6 +457,7 @@ The files are private to the user, like the rest of the state directory. They ho
 | project | The current directory is inside a git repository | Fails |
 | first commit | The repository has a commit, because a workspace is a copy of one | Fails |
 | state directory | `.h2h/` can be written, or created in the project root | Fails |
+| `.gitignore` | Git leaves `.h2h/` and the config's temporary file out of the project, through the project's `.gitignore` or another rule | Warns, with the lines missing. Starting a harness or applying the config adds them |
 | sessions | A pseudo-terminal opens, and a local socket can listen in the private directory under `/tmp` | Fails |
 | editor | `$VISUAL`, `$EDITOR`, nano or vi is installed | Warns: only `config --manual` needs it |
 | `h2h.toml` | The config exists and is valid | Without one, warns that the shipped defaults are in force and points at `/config`. With one that does not parse, has a setting H2H does not know, or a value it does not accept, fails with what is wrong, and the harnesses are not checked |
