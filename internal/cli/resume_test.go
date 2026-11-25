@@ -165,21 +165,28 @@ func TestResumeSwitchesTheConsoleSession(t *testing.T) {
 	}
 }
 
-func TestClear(t *testing.T) {
+func TestCls(t *testing.T) {
 	e, _ := doctorEnv(t, "")
 	ui := &scriptedUI{}
 	e.ui = ui
-	if err := e.clear(context.Background(), nil); err == nil || ui.cleared {
-		t.Errorf("clear from the shell = %v, cleared %v; want an error", err, ui.cleared)
+	if err := e.cls(context.Background(), nil); err == nil || ui.cleared {
+		t.Errorf("cls from the shell = %v, cleared %v; want an error", err, ui.cleared)
 	}
 	e.here = &openSession{root: e.root, current: newConsoleSession(e.root, time.Now())}
-	if err := e.clear(context.Background(), []string{"all"}); err == nil || ui.cleared {
-		t.Errorf("clear with an argument = %v; want a usage error", err)
+	e.conv = e.here
+	e.keepTalk(talk{Harness: "claude", ID: "conversation-1"})
+	if err := e.cls(context.Background(), []string{"all"}); err == nil || ui.cleared {
+		t.Errorf("cls with an argument = %v; want a usage error", err)
 	}
-	if err := e.clear(context.Background(), nil); err != nil || !ui.cleared {
-		t.Errorf("clear in the console = %v, cleared %v", err, ui.cleared)
+	if err := e.cls(context.Background(), nil); err != nil || !ui.cleared {
+		t.Errorf("cls in the console = %v, cleared %v", err, ui.cleared)
 	}
-	if ok, _, _ := permitted([]string{"clear"}); ok {
-		t.Error("the default harness may clear the user's page")
+	if got := e.currentTalk().ID; got != "conversation-1" {
+		t.Errorf("after cls the conversation is %q; want it to go on", got)
+	}
+	for _, name := range []string{"cls", "clear"} {
+		if ok, _, _ := permitted([]string{name}); ok {
+			t.Errorf("the default harness may run %s", name)
+		}
 	}
 }

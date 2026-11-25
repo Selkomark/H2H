@@ -36,6 +36,9 @@ type consoleSession struct {
 	Transcript string    `json:"transcript"`
 	History    []string  `json:"history"`
 	Starts     []int     `json:"starts"`
+	// Talk is the session's conversation with the default harness, so
+	// resuming the session continues it. Nil until the first message.
+	Talk *talk `json:"conversation,omitempty"`
 }
 
 // IDs are the time the session started, with a number added when two
@@ -414,15 +417,16 @@ func (e *env) consoleSessionsView() console.Table {
 	return t
 }
 
-// clear empties the console's page. The session stays the same one, with
-// the lines entered in it still in reach of the Up key, and is saved that
-// way: resuming it later shows the clean page, not the old one.
-func (e *env) clear(_ context.Context, args []string) error {
+// cls empties the console's page. The session stays the same one, with
+// the lines entered in it still in reach of the Up key and its
+// conversation with the default harness going on, and is saved that way:
+// resuming it later shows the clean page, not the old one.
+func (e *env) cls(_ context.Context, args []string) error {
 	switch {
 	case len(args) > 0:
-		return errors.New("usage: clear")
+		return errors.New("usage: cls")
 	case e.here == nil:
-		return errors.New("clear empties the page of the console; there is no page outside it")
+		return errors.New("cls empties the page of the console; there is no page outside it")
 	}
 	e.ui.Clear()
 	return nil

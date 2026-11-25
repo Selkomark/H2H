@@ -23,17 +23,26 @@ func AskStream(ctx context.Context, h config.Harness, environ []string, dir, pro
 	if !h.Streams() {
 		return Ask(ctx, h, environ, dir, prompt, stdout, stderr)
 	}
-	cmd := exec.CommandContext(ctx, h.Command, append(append([]string{}, h.StreamArgs...), prompt)...)
+	_, err := stream(ctx, h, environ, dir, h.StreamArgs, prompt, stdout, stderr)
+	return err
+}
+
+// stream runs the harness with args and the prompt after them, and writes
+// the text of its JSON output to stdout as it arrives. It returns the
+// conversation ID the output reports at the harness's conversation_key,
+// or "" when there is none.
+func stream(ctx context.Context, h config.Harness, environ []string, dir string, args []string, prompt string, stdout, stderr io.Writer) (string, error) {
+	cmd := exec.CommandContext(ctx, h.Command, append(append([]string{}, args...), prompt)...)
 	cmd.Dir = dir
 	cmd.Env = Env(h, environ)
 	cmd.Stderr = stderr
 	// Stdin stays closed, as in Ask.
 	pipe, err := cmd.StdoutPipe()
 	if err != nil {
-		return err
+		return "", err
 	}
 	if err := cmd.Start(); err != nil {
-		return err
+		return "", err
 	}
 	lines := bufio.NewReader(pipe)
 	// Output that is not what was asked for is most likely the harness
@@ -43,6 +52,7 @@ func AskStream(ctx context.Context, h config.Harness, environ []string, dir, pro
 	// A harness that fails says why in one of its events, not in the
 	// answer: a usage limit reached, a login that expired.
 	var failures []string
+	var id string
 	for {
 		line, readErr := lines.ReadString('\n')
 		if text, isJSON := streamPiece(h, line); text != "" {
@@ -54,6 +64,9 @@ func AskStream(ctx context.Context, h config.Harness, environ []string, dir, pro
 			stray.WriteString(line)
 		} else if why := streamFailure(line); why != "" {
 			failures = append(failures, why)
+		}
+		if id == "" && h.ConversationKey != "" {
+			id = streamField(line, h.ConversationKey)
 		}
 		if readErr != nil {
 			break
@@ -68,7 +81,18 @@ func AskStream(ctx context.Context, h config.Harness, environ []string, dir, pro
 			_, _ = io.WriteString(stderr, why+"\n")
 		}
 	}
-	return err
+	return id, err
+}
+
+// streamField returns the text at a path of keys in one line of JSON
+// output, or "" when the line has none there.
+func streamField(line, path string) string {
+	var event map[string]any
+	if err := json.Unmarshal([]byte(line), &event); err != nil {
+		return ""
+	}
+	text, _ := lookupPath(event, path).(string)
+	return strings.TrimSpace(text)
 }
 
 // streamFailure returns what a line of a harness's output says went

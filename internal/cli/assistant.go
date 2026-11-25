@@ -51,6 +51,11 @@ var assistantCommands = map[string]bool{
 // converse answers text typed into the console with the default harness,
 // which can also run H2H's commands: it asks for them in its reply, H2H
 // runs them and shows it the results, and it carries on from there.
+//
+// Every run continues the console session's conversation with the
+// harness, so it remembers what was said before. The first message of a
+// conversation carries everything the harness needs to know; a later one
+// carries only the message and what has changed since.
 func (e *env) converse(ctx context.Context, text string) error {
 	cfg, err := config.Load(e.root)
 	if err != nil {
@@ -60,34 +65,42 @@ func (e *env) converse(ctx context.Context, text string) error {
 	if err != nil {
 		return err
 	}
-	var turns []string
+	t := e.currentTalk()
+	if t.ID != "" && t.Harness != name {
+		fmt.Fprintln(e.out, e.st.dim.Render("The default harness is now "+name+", so this starts a new conversation with it."))
+		t = talk{}
+		e.keepTalk(t)
+	}
+	var turns []string // what the harness and H2H said after the message, for a harness that does not remember
+	result := ""       // what H2H's commands printed in the last round
 	for round := 1; ; round++ {
-		base, err := e.assistantPrompt(ctx, cfg)
-		if err != nil {
-			return err
-		}
 		note := "Asking " + name + "..."
 		if round > 1 {
 			note = name + " is looking at the results..."
 		}
 		fmt.Fprintln(e.out, e.st.dim.Render(note))
 
-		// What the harness prints beside its answer (progress, warnings)
-		// is kept off the page, and shown only if the run fails.
-		var reply, beside bytes.Buffer
-		shown := &streamWriter{out: e.out, hide: runMarker}
-		actx, cancel := context.WithTimeout(ctx, askTimeout)
-		err = harness.AskStream(actx, h, e.environ, e.root, base+"Message from the user: "+text+"\n"+rounds(turns), io.MultiWriter(&reply, shown), &beside)
-		cancel()
-		shown.Close()
+		reply, next, err := e.turn(ctx, cfg, name, h, t, text, turns, result, round)
+		// A conversation the harness no longer has, because its history was
+		// removed, cannot be continued. It is started again, once, from the
+		// beginning, but only if the turn said nothing: one that failed half
+		// way through is not repeated.
+		if err != nil && ctx.Err() == nil && t.ID != "" && strings.TrimSpace(reply) == "" {
+			fmt.Fprintln(e.out, e.st.dim.Render("The earlier conversation with "+name+" could not be continued, so this starts a new one."))
+			reply, next, err = e.turn(ctx, cfg, name, h, talk{}, text, turns, result, round)
+		}
 		switch {
 		case ctx.Err() != nil:
+			// A conversation that had begun goes on; one whose first turn
+			// was cut short may not exist, so the next message starts anew.
 			return fmt.Errorf("%s was interrupted", name)
 		case err != nil:
-			return couldNotAnswer(name, h, err, beside.String())
+			return err
 		}
+		t = next
+		e.keepTalk(t)
 
-		calls := runLines(reply.String())
+		calls := runLines(reply)
 		if len(calls) == 0 {
 			return nil
 		}
@@ -95,65 +108,119 @@ func (e *env) converse(ctx context.Context, text string) error {
 			fmt.Fprintln(e.out, e.st.dim.Render(fmt.Sprintf("Stopped after %d rounds of commands.", maxRounds)))
 			return nil
 		}
-		turns = append(turns, "You: "+strings.TrimSpace(reply.String()), "H2H: "+e.runFor(ctx, name, calls))
+		result = e.runFor(ctx, name, calls)
+		turns = append(turns, "You: "+strings.TrimSpace(reply), "H2H: "+result)
 	}
 }
 
-// assistantPrompt tells the default harness where it is, what the state of
-// things is right now, and how to act on it.
-func (e *env) assistantPrompt(ctx context.Context, cfg config.Config) (string, error) {
+// turn runs one turn of the conversation t, which is new when its ID is
+// "". It returns the harness's reply and the conversation as it goes on.
+func (e *env) turn(ctx context.Context, cfg config.Config, name string, h config.Harness, t talk, text string, turns []string, result string, round int) (string, talk, error) {
+	prompt, wiring, err := e.turnPrompt(cfg, t, text, turns, result, round)
+	if err != nil {
+		return "", t, err
+	}
+	// What the harness prints beside its answer (progress, warnings) is
+	// kept off the page, and shown only if the run fails.
+	var reply, beside bytes.Buffer
+	shown := &streamWriter{out: e.out, hide: runMarker}
+	actx, cancel := context.WithTimeout(ctx, askTimeout)
+	id, err := harness.Turn(actx, h, e.environ, e.root, t.ID, prompt, io.MultiWriter(&reply, shown), &beside)
+	cancel()
+	shown.Close()
+	if err != nil {
+		return reply.String(), t, couldNotAnswer(name, h, err, beside.String())
+	}
+	return reply.String(), talk{Harness: name, ID: id, Wiring: wiring}, nil
+}
+
+// turnPrompt is what one turn tells the harness, and the digest of the
+// config it shows. A new conversation, or a harness that does not
+// remember, is told everything. A conversation that goes on is told the
+// message and how things stand now, or, after commands it asked for,
+// only what they printed.
+func (e *env) turnPrompt(cfg config.Config, t talk, text string, turns []string, result string, round int) (prompt, wiring string, err error) {
+	state, wiringText, err := e.assistantState(cfg)
+	if err != nil {
+		return "", "", err
+	}
+	// The map also shows which harnesses run, which the harness is told
+	// anyway; only a change to the config itself makes it worth repeating.
+	wiring = digest(configMap(e.root, cfg, nil, plainStyles()) + cfg.RolesXML(""))
+	switch {
+	case t.ID == "":
+		return assistantRules + "How the config is wired up:\n" + wiringText + "\n" + "Harnesses right now:\n" + state + "\n" +
+			"Message from the user: " + text + "\n" + rounds(turns), wiring, nil
+	case round > 1:
+		return "What H2H's commands printed:\n\n" + result + "\n\nContinue: run more, or give the user your answer.\n", t.Wiring, nil
+	}
+	update := ""
+	if wiring != t.Wiring {
+		update = "The config has changed since you last saw it. How it is wired up now:\n" + wiringText + "\n"
+	}
+	return update + "Harnesses right now:\n" + state + "\n" + "Message from the user: " + text + "\n", wiring, nil
+}
+
+// assistantState is how things stand, as the default harness is shown
+// them: the harnesses that were started, and how the config is wired up.
+// They are the same views the user has, without styling.
+func (e *env) assistantState(cfg config.Config) (state, wiring string, err error) {
 	infos, err := session.List(e.root)
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
-	// The harness gets the same views the user has, without styling.
-	state := "No harness has been started.\n"
+	state = "No harness has been started.\n"
 	if len(infos) > 0 {
 		state = sessionTable(e.root, infos, plainStyles())
 	}
-	wiring := configMap(e.root, cfg, infos, plainStyles())
+	wiring = configMap(e.root, cfg, infos, plainStyles())
 	if roles := cfg.RolesXML(""); roles != "" {
 		wiring += "\nThe domains in detail:\n" + roles
 	}
-	return "You are the assistant in the console of H2H, a tool that runs coding-agent harnesses as a team " +
-		"for the project in the current directory: each harness owns a domain and works in its own session and workspace. " +
-		"The user typed a message into the console. Answer it briefly, in plain text for a terminal: no Markdown.\n\n" +
-		"You can run H2H's commands yourself. To run one, put it on a line of its own in your reply, after " + runMarker + ", for example:\n" +
-		runMarker + " start backend\n" +
-		"H2H runs the commands of your reply in order once the reply ends, then shows you what they printed, and you continue: " +
-		"run more, or give the user your answer. Say in a few words what you are about to do before the commands, " +
-		"and do not claim a result before you have seen it. When you have nothing more to run, reply without any such line.\n\n" +
-		"The commands you can run:\n" +
-		"  ps                          list the harnesses that were started, with their state\n" +
-		"  start <harness | domain>    start a harness in its own workspace; a domain starts its owner, told its role\n" +
-		"  stop <id>                   stop a running harness\n" +
-		"  rm <id>                     remove a stopped harness and its workspace\n" +
-		"  land <id>                   bring a harness's work from its workspace onto the branch the project is on:\n" +
-		"                              H2H shows the user what would land and asks them before it changes the project;\n" +
-		"                              it offers to commit work the harness left uncommitted, and merges without pushing\n" +
-		"  logs <id>                   the terminal output of a harness so far\n" +
-		"  ask <id | harness | domain> <question>\n" +
-		"                              hand a request to a running harness: it is typed into that harness's own session,\n" +
-		"                              where the user can watch, and you get its report when it is done. Name the id, or the\n" +
-		"                              domain or harness it runs for. This is how work and questions are delegated: start a\n" +
-		"                              domain's owner first, then ask it. Only if none is running for that name is the\n" +
-		"                              harness run once, read-only, without a session\n" +
-		"  map                         how the config is wired up\n" +
-		"  sessions                    the saved console sessions\n" +
-		"  doctor                      check that everything H2H needs is in place\n" +
-		"  install [--update] [harness ...]\n" +
-		"                              install missing harnesses, or update installed ones\n" +
-		"The user is asked before start, stop, rm and install are run, and may decline. " +
-		"A harness works in its own workspace, a separate copy of the project, so its work is not in the project until it is landed. " +
-		"When the user accepts a harness's work, or wants it in the project, the code base or their branch, run land for that harness. " +
-		"Do not tell the user to run git for this, and do not ask the harness to merge, push or switch branches: land does it, and it asks the user itself. " +
-		"You cannot change the config: for that, tell the user to run /config. " +
-		"You cannot attach to a harness: the user does that with /attach <id>. " +
-		"When the user wants something done or found out in a domain, do not do it or answer it yourself: delegate it to that domain's harness with ask, and pass on what it reports. " +
-		"Do not change any file yourself.\n\n" +
-		"How the config is wired up:\n" + wiring + "\n" +
-		"Harnesses right now:\n" + state + "\n", nil
+	return state, wiring, nil
 }
+
+// assistantRules tell the default harness where it is and how to act. A
+// conversation is told them once, at its start.
+const assistantRules = "You are the assistant in the console of H2H, a tool that runs coding-agent harnesses as a team " +
+	"for the project in the current directory: each harness owns a domain and works in its own session and workspace. " +
+	"The user types messages into the console, and each comes to you in this conversation, with how things stand at that moment. " +
+	"Answer each one briefly, in plain text for a terminal: no Markdown. You remember the earlier messages, " +
+	"so when the user says to go ahead with something, it is what was discussed before. " +
+	"The conversation lasts until the user starts a new one with /clear.\n\n" +
+	"You can run H2H's commands yourself. To run one, put it on a line of its own in your reply, after " + runMarker + ", for example:\n" +
+	runMarker + " start backend\n" +
+	"H2H runs the commands of your reply in order once the reply ends, then shows you what they printed, and you continue: " +
+	"run more, or give the user your answer. Say in a few words what you are about to do before the commands, " +
+	"and do not claim a result before you have seen it. When you have nothing more to run, reply without any such line.\n\n" +
+	"The commands you can run:\n" +
+	"  ps                          list the harnesses that were started, with their state\n" +
+	"  start <harness | domain>    start a harness in its own workspace; a domain starts its owner, told its role\n" +
+	"  stop <id>                   stop a running harness\n" +
+	"  rm <id>                     remove a stopped harness and its workspace\n" +
+	"  land <id>                   bring a harness's work from its workspace onto the branch the project is on:\n" +
+	"                              H2H shows the user what would land and asks them before it changes the project;\n" +
+	"                              it offers to commit work the harness left uncommitted, and merges without pushing\n" +
+	"  logs <id>                   the terminal output of a harness so far\n" +
+	"  ask <id | harness | domain> <question>\n" +
+	"                              hand a request to a running harness: it is typed into that harness's own session,\n" +
+	"                              where the user can watch, and you get its report when it is done. Name the id, or the\n" +
+	"                              domain or harness it runs for. This is how work and questions are delegated: start a\n" +
+	"                              domain's owner first, then ask it. Only if none is running for that name is the\n" +
+	"                              harness run once, read-only, without a session\n" +
+	"  map                         how the config is wired up\n" +
+	"  sessions                    the saved console sessions\n" +
+	"  doctor                      check that everything H2H needs is in place\n" +
+	"  install [--update] [harness ...]\n" +
+	"                              install missing harnesses, or update installed ones\n" +
+	"The user is asked before start, stop, rm and install are run, and may decline. " +
+	"A harness works in its own workspace, a separate copy of the project, so its work is not in the project until it is landed. " +
+	"When the user accepts a harness's work, or wants it in the project, the code base or their branch, run land for that harness. " +
+	"Do not tell the user to run git for this, and do not ask the harness to merge, push or switch branches: land does it, and it asks the user itself. " +
+	"You cannot change the config: for that, tell the user to run /config. " +
+	"You cannot attach to a harness: the user does that with /attach <id>. " +
+	"When the user wants something done or found out in a domain, do not do it or answer it yourself: delegate it to that domain's harness with ask, and pass on what it reports. " +
+	"Do not change any file yourself.\n\n"
 
 // rounds is what has happened since the user's message: each reply of the
 // harness and what its commands printed.

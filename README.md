@@ -58,7 +58,8 @@ h2h
 | `/land [id]` | `h2h land [id]` | Brings a harness's work from its workspace onto the branch the project is on. It shows what would land and asks first, offers to commit work the harness left uncommitted, and merges without pushing. `l` on the Harnesses tab does the same |
 | `/sessions [rm <session> \| rm all]` | `h2h sessions [rm <session> \| rm all]` | Lists the saved console sessions, or removes them. In the console it opens the Sessions tab: arrows select, Enter jumps into the session, `d` deletes it |
 | `/resume <session>` | | Switches the console to a saved session, as Enter on the Sessions tab does |
-| `/clear` | | Empties the console's page and carries on in the same session. The lines you entered stay in reach of the Up key |
+| `/cls` | | Empties the console's page and carries on in the same session and the same conversation with the default harness. The lines you entered stay in reach of the Up key |
+| `/clear` | | Starts a new conversation with the default harness, in the same console session. The page stays as it is |
 | | `h2h --resume [session]`, or `-r` | Opens the console on an earlier session, with its page and the lines that were entered. Without a session it resumes the only one, or asks which |
 | `/map` | `h2h map` | Draws the config as a graph: a box for each domain with its owner, and arrows for the flow of work between them. In the console it opens the Map tab, where the arrow keys or a click select a domain and Enter opens what it is for and who does what in it: the harness in charge and a table of each sub-agent's job. "Show more" answers the rest in plain words: is it running, which files, when it can start, where its work goes. From the shell it prints the drawing with each domain's setup under it; see [docs/responsibility-map.md](docs/responsibility-map.md) |
 | `/install [--update] [harness ...]` | `h2h install [--update] [harness ...]` | Installs the harnesses that are missing, at their latest version. `--update` checks the installed ones for a newer version instead. Either way a dialog lists what was found, ticked, and only what stays ticked is installed; see [docs/runtime.md](docs/runtime.md#install) |
@@ -67,7 +68,7 @@ h2h
 | `/config --manual` | `h2h config --manual` | Opens the config in your editor, starting from the shipped one if the project has none |
 | `/config show` | `h2h config show` | Prints the config |
 | `/ask <id \| harness \| domain> <request>` | `h2h ask <id \| harness \| domain> <request>` | Hands a request to a running harness: it is typed into that harness's own session, where you can attach and watch, and its report is printed when it is done. If none is running for that name, the harness answers in a fresh read-only run instead |
-| plain text | | Talks to the default harness, which sees the map, the domains and the running harnesses, and can run H2H's commands itself: list, start, stop, remove, read logs, ask a domain's owner, and more. It asks before anything that changes something, and cannot change the config. Its answer appears as it is written |
+| plain text | | Talks to the default harness, which sees the map, the domains and the running harnesses, and can run H2H's commands itself: list, start, stop, remove, read logs, ask a domain's owner, and more. It asks before anything that changes something, and cannot change the config. Its answer appears as it is written. Each console session is one conversation with it, which it remembers, and which resuming the session continues |
 
 Harnesses keep running when the console exits, and the console's own session is saved so it can be resumed; see [docs/runtime.md](docs/runtime.md#console-sessions). The config is `h2h.toml` at the project root; see [docs/configuration.md](docs/configuration.md).
 

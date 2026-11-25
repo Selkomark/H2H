@@ -35,7 +35,11 @@ type env struct {
 	ui   console.UI // questions to the user, and handing over the terminal
 	// here is the console session the command runs in, or nil for a
 	// command run from the shell.
-	here    *openSession
+	here *openSession
+	// conv keeps the conversation with the default harness that the line
+	// belongs to: the console session's, or one for lines read from a
+	// pipe. It is nil for a command run from the shell.
+	conv    talks
 	environ []string
 	st      styles
 }
@@ -198,7 +202,8 @@ func commands() []command {
 		{"ask", "<id | harness | domain> <question>", "Hand a request to a running harness and wait for its report", (*env).askHarness},
 		{"sessions", "[rm <session> | rm all]", "List the saved console sessions, or remove them", (*env).sessions},
 		{"resume", "[session]", "In the console, switch to a saved session", (*env).resume},
-		{"clear", "", "In the console, empty the page and carry on in the same session", (*env).clear},
+		{"cls", "", "In the console, empty the page and carry on in the same session and conversation", (*env).cls},
+		{"clear", "", "In the console, start a new conversation with the default harness; the page stays", (*env).clearTalk},
 		{"install", "[--update] [harness ...]", "Install missing harnesses; --update offers newer versions", (*env).install},
 		{"doctor", "", "Check that everything H2H needs is in place", (*env).doctor},
 		{"config", "[show | --manual]", "Set the config up in a conversation; --manual opens it in your editor", (*env).config},
@@ -333,6 +338,7 @@ func (e *env) console(resume bool, resumeID string) error {
 		return e.script()
 	}
 	e.here = &openSession{root: e.root, current: newConsoleSession(e.root, time.Now())}
+	e.conv = e.here
 	var restore *console.State
 	if resume {
 		saved, ok, err := e.sessionToResume(resumeID)
@@ -420,6 +426,7 @@ func (e *env) console(resume bool, resumeID string) error {
 // script reads lines from input that is not a terminal, such as a pipe.
 // A command that asks a question reads its answer from the next line.
 func (e *env) script() error {
+	e.conv = &scriptTalk{}
 	for {
 		text, ok := readLine(e.in)
 		if !ok {

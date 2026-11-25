@@ -716,18 +716,18 @@ func TestClearEmptiesThePage(t *testing.T) {
 	wheel(m, tea.MouseButtonWheelUp)
 
 	// The command that clears is itself on the page until it runs.
-	typeText(m, "/clear")
+	typeText(m, "/cls")
 	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	m.Update(clearMsg{})
 	run(m, cmd)
 
-	if v := m.View(); strings.Contains(v, "output of") || strings.Contains(v, "> /clear") || m.transcript != "" {
+	if v := m.View(); strings.Contains(v, "output of") || strings.Contains(v, "> /cls") || m.transcript != "" {
 		t.Fatalf("the page is not empty after clearing: %q\n%s", m.transcript, v)
 	}
 	if len(m.starts) != 1 || m.unseen != 0 || m.sel != nil {
 		t.Errorf("left over from the old page: starts %v, unseen %d", m.starts, m.unseen)
 	}
-	if saved.Transcript != "" || strings.Join(saved.History, "|") != "/one|/two|/clear" {
+	if saved.Transcript != "" || strings.Join(saved.History, "|") != "/one|/two|/cls" {
 		t.Errorf("saved %q with history %q; want an empty page and the entered lines kept", saved.Transcript, saved.History)
 	}
 	// What was entered before is still in reach, and the page works on.

@@ -326,7 +326,7 @@ Text typed into the console without a slash goes to the default harness, which a
 
 ### How it acts
 
-The default harness is run once, read-only, through its `stream_args` or `ask_args`. It is told what H2H is, how the config is wired up, which harnesses are running, and which commands it can run. To run one it puts the command on a line of its own after a marker (`H2H-RUN:`). When its reply ends, H2H runs those commands in order, shows the user each command and what it printed, and runs the harness again with the results, until a reply asks for no command. One message from the user gets at most six such rounds.
+Each message is one read-only run of the default harness that continues the console session's conversation with it; see [One conversation per console session](#one-conversation-per-console-session). The first message of a conversation tells it what H2H is, how the config is wired up, which harnesses are running, and which commands it can run. To run one it puts the command on a line of its own after a marker (`H2H-RUN:`). When its reply ends, H2H runs those commands in order, shows the user each command and what it printed, and runs the harness again with the results, until a reply asks for no command. One message from the user gets at most six such rounds.
 
 ```mermaid
 flowchart TD
@@ -358,7 +358,29 @@ flowchart TD
 
 The commands are the same functions the user runs, so a command's own safeguards still apply: `rm` still asks before deleting uncommitted work, and `install` still shows what it would install. A command the assistant may not run is answered with the reason, so it can tell the user what to do instead.
 
-This is a protocol in text and not a tool registered with the harness. It needs nothing from a harness beyond a one-shot answer, so it works the same on all three, in the read-only mode each one has, and H2H decides in code what may run.
+This is a protocol in text and not a tool registered with the harness. It needs nothing from a harness beyond an answer to a prompt, so it works the same on every harness, in the read-only mode each one has, and H2H decides in code what may run.
+
+### One conversation per console session
+
+A console session holds one conversation with the default harness, and the harness keeps it, as it keeps a conversation in its own terminal. H2H does not run the harness's interactive screen and never reads it. Each message is a non-interactive run that names the conversation by its ID, so the harness has everything said before, its own way. H2H keeps only the ID, in the saved console session.
+
+- **The first message** starts the conversation and carries everything the harness needs: what H2H is, its commands and rules, how the config is wired up, and which harnesses are running.
+- **A later message** carries only the message and which harnesses are running now, and the config again only if it changed since the harness last saw it. After commands the harness asked for, the next run carries only what they printed.
+- **Resuming a console session**, with `h2h --resume`, `/resume` or the Sessions tab, continues its conversation.
+- **`/clear`** ends the conversation; the next message starts a new one, in the same console session, and the page stays. `/cls` empties the page and keeps the conversation.
+- **A changed default harness** starts a new conversation with the new one at the next message, and says so in one line.
+- **A conversation the harness no longer has**, because its history was removed, cannot be continued. When a run that should continue it fails without saying anything, H2H says so in one line and starts a new conversation, once. A run that fails for another reason, such as a usage limit, keeps the conversation for the next message.
+- **Interrupting** a run with Ctrl-C keeps a conversation that had begun. If the conversation's first run is interrupted, the next message starts a new one.
+- **Lines piped into `h2h`** share one conversation for as long as the input lasts, and it is not saved.
+
+How each harness is told which conversation a run belongs to is in its config entry: `conversation_args` and `resume_args`, or `conversation_key` for a harness that chooses the ID itself; see [configuration.md](configuration.md). A config written before these settings existed keeps working, and each message is then a fresh run, as before; doctor lists the settings it lacks.
+
+| Harness | Version checked | New conversation | Later messages | Level reached |
+|---|---|---|---|---|
+| Claude Code | 2.1.332 | `-p ... --session-id <id>`, with an ID H2H chooses | `-p ... --resume <id>` | 4, behaves: remembered a word across two messages through H2H |
+| Copilot CLI | 1.0.115 | `--session-id <id> ... -p`, with an ID H2H chooses | the same | 4, behaves: as above |
+| Codex CLI | 0.171.0 | `exec --sandbox read-only --json`; the ID is read from the `thread_id` its output reports | `exec resume -c sandbox_mode="read-only" --json <id>` | 4, behaves: as above |
+| OpenCode | 2.4.1 | `run ... --session ses_<id>`, with an ID H2H chooses; OpenCode requires the `ses` prefix | the same | 3, loaded: OpenCode created and reported the session under the ID H2H gave. Not 4: the account used for the check had reached OpenCode's free usage limit, so no answer was given |
 
 ### Delegating to a running harness
 
@@ -437,13 +459,14 @@ A console session is written to the state directory once the user has entered a 
 | `h2h sessions` | Lists the saved sessions, the latest used first |
 | `/sessions` in the console | Opens the Sessions tab: the same list, updated live, with the session on screen marked "this one". The arrow keys or a click select a session, Enter jumps into it, and `d` deletes it after a confirmation |
 | `/resume <session>` in the console | Jumps into that session. This is what Enter on the Sessions tab runs |
-| `/clear` in the console | Empties the page and carries on in the same session. The lines entered so far can still be recalled with the Up key, and the session is saved with its clean page, so resuming it later does not bring the old output back. Running harnesses are not touched |
+| `/cls` in the console | Empties the page and carries on in the same session, and in the same conversation with the default harness. The lines entered so far can still be recalled with the Up key, and the session is saved with its clean page, so resuming it later does not bring the old output back. Running harnesses are not touched |
+| `/clear` in the console | Starts a new conversation with the default harness, in the same session; the page stays. See [One conversation per console session](#one-conversation-per-console-session) |
 | `h2h sessions rm <session>` | Removes one |
 | `h2h sessions rm all` | Removes all of them, after a confirmation |
 
 Jumping into a session from inside the console replaces the page and the entered lines with that session's, and what is entered next is saved to it. The session that was on screen stays as it was when its last line finished, and can be jumped back into the same way. The session on screen cannot be deleted from inside it.
 
-A resumed console shows the page as it was left, followed by a note of which session was resumed, and the Up key recalls the lines entered before. Resuming restores what the console showed and nothing else: commands are not run again, and the harnesses were never stopped. A session keeps its last 1000 entered lines and the last 400,000 bytes of its page.
+A resumed console shows the page as it was left, followed by a note of which session was resumed, and the Up key recalls the lines entered before. Resuming restores what the console showed and its conversation with the default harness, and nothing else: commands are not run again, and the harnesses were never stopped. A session keeps its last 1000 entered lines and the last 400,000 bytes of its page.
 
 The files are private to the user, like the rest of the state directory. They hold whatever was on the page, including answers from the default harness, so they are as sensitive as the terminal's scrollback. Saved sessions are kept until removed; nothing expires them.
 

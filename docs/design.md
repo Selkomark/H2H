@@ -116,6 +116,8 @@ Each harness runs in its own session under a small keeper process that holds its
 
 Plain text typed into the console goes to the default harness, which acts as the console's assistant. It is given the map, the domains and the running harnesses, answers in plain words, and can run H2H's own commands to do what was asked, such as starting the owner of each domain; see [runtime.md](runtime.md#the-assistant). H2H holds no model login of its own, so what answers is whatever harness the user has chosen as default.
 
+Each console session is one conversation with the default harness, kept by the harness itself: every message continues it by its ID, so the harness remembers what was said before, and resuming the console session continues the same conversation. `/clear` starts a new one in the same console session; `/cls` only empties the page.
+
 ### Default harness
 
 One harness in the pool is marked as the default. It starts when the user names no harness, and it answers the console. H2H ships with Claude Code as the default. The user can change it in the config, which matters where a company permits only one product.

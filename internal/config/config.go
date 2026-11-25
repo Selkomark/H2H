@@ -57,7 +57,18 @@ type Harness struct {
 	StreamText  string   `toml:"stream_text"`
 	StreamWhen  string   `toml:"stream_when"`
 	StreamWhole bool     `toml:"stream_whole"`
-	PassEnv     []string `toml:"pass_env"`
+	// ConversationArgs, ResumeArgs and ConversationKey let the harness
+	// carry one conversation on across runs, so the console's default
+	// harness remembers what was said before. Each list replaces the
+	// arguments of an answer: stream_args, or ask_args for a harness that
+	// does not stream. ConversationArgs start a conversation whose ID H2H
+	// chooses, and ResumeArgs continue one; {conversation} in them is the
+	// ID. A harness that chooses its own ID reports it in its JSON output,
+	// at ConversationKey, instead of taking ConversationArgs.
+	ConversationArgs []string `toml:"conversation_args"`
+	ResumeArgs       []string `toml:"resume_args"`
+	ConversationKey  string   `toml:"conversation_key"`
+	PassEnv          []string `toml:"pass_env"`
 	// VersionArgs make the harness print its version and exit. "doctor"
 	// runs them to prove the program works, not only that it is on PATH.
 	VersionArgs []string `toml:"version_args"`
@@ -282,6 +293,9 @@ func (c Config) validate() error {
 		if err := h.validateStream(); err != nil {
 			return fmt.Errorf("harness %q: %w", name, err)
 		}
+		if err := h.validateConversation(); err != nil {
+			return fmt.Errorf("harness %q: %w", name, err)
+		}
 		if err := h.validateTrust(); err != nil {
 			return fmt.Errorf("harness %q: %w", name, err)
 		}
@@ -318,6 +332,39 @@ func (h Harness) validateStream() error {
 		return errors.New("stream_args needs stream_text, which says where the text is in a line of output")
 	case h.StreamWhen != "" && !strings.Contains(h.StreamWhen, "="):
 		return fmt.Errorf("stream_when %q is not keys=value", h.StreamWhen)
+	}
+	return nil
+}
+
+// ConversationPlaceholder stands for a conversation's ID in a harness's
+// conversation_args and resume_args.
+const ConversationPlaceholder = "{conversation}"
+
+// Remembers reports whether the harness can carry a conversation on from
+// one run to the next.
+func (h Harness) Remembers() bool { return len(h.ResumeArgs) > 0 }
+
+// NamesConversation reports whether H2H chooses the ID of a new
+// conversation, as opposed to the harness reporting the one it chose.
+func (h Harness) NamesConversation() bool { return len(h.ConversationArgs) > 0 }
+
+func (h Harness) validateConversation() error {
+	has := func(args []string) bool {
+		return slices.ContainsFunc(args, func(a string) bool { return strings.Contains(a, ConversationPlaceholder) })
+	}
+	switch {
+	case !h.Remembers() && (h.NamesConversation() || h.ConversationKey != ""):
+		return errors.New("conversation_args and conversation_key need resume_args, which continue the conversation")
+	case !h.Remembers():
+		return nil
+	case !has(h.ResumeArgs):
+		return fmt.Errorf("resume_args must contain %s where the conversation's ID goes", ConversationPlaceholder)
+	case h.NamesConversation() == (h.ConversationKey != ""):
+		return errors.New("resume_args need either conversation_args, to start a conversation with an ID H2H chooses, or conversation_key, where the harness reports the ID it chose")
+	case h.NamesConversation() && !has(h.ConversationArgs):
+		return fmt.Errorf("conversation_args must contain %s where the conversation's ID goes", ConversationPlaceholder)
+	case h.ConversationKey != "" && !h.Streams():
+		return errors.New("conversation_key needs stream_args: the ID is read from the harness's JSON output")
 	}
 	return nil
 }
