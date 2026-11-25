@@ -186,22 +186,72 @@ func Path(root string) string { return filepath.Join(root, FileName) }
 
 // Parse decodes and validates config text.
 func Parse(text string) (Config, error) {
+	c, md, err := decode(text)
+	if err != nil {
+		return Config{}, err
+	}
+	c.inherit(md, shippedHarnesses())
+	if err := c.validate(); err != nil {
+		return Config{}, err
+	}
+	return c, nil
+}
+
+// decode reads config text without filling anything in or checking it.
+func decode(text string) (Config, toml.MetaData, error) {
 	var c Config
 	md, err := toml.Decode(text, &c)
 	if err != nil {
-		return Config{}, err
+		return Config{}, md, err
 	}
 	if extra := md.Undecoded(); len(extra) > 0 {
 		keys := make([]string, len(extra))
 		for i, k := range extra {
 			keys[i] = k.String()
 		}
-		return Config{}, fmt.Errorf("unknown setting: %s", strings.Join(keys, ", "))
+		return Config{}, md, fmt.Errorf("unknown setting: %s", strings.Join(keys, ", "))
 	}
-	if err := c.validate(); err != nil {
-		return Config{}, err
+	return c, md, nil
+}
+
+// shippedHarnesses returns the harness entries H2H ships with, as written,
+// with nothing inherited.
+func shippedHarnesses() map[string]Harness {
+	c, _, _ := decode(defaultTOML) // a test keeps the shipped config valid
+	return c.Harnesses
+}
+
+// conversationSettings are filled in together or not at all: a harness
+// either names its conversations or reports their IDs, and mixing a
+// project's choice with the shipped one would leave it with both.
+var conversationSettings = []string{"conversation_args", "resume_args", "conversation_key"}
+
+// inherit fills in, for each harness that has the name and program of a
+// shipped one, every setting the file does not name with the shipped value.
+// A project's entry then says only how it differs, and a project written
+// for an earlier H2H gets what later versions add without being edited. A
+// setting the file names, even as an empty list, is kept as written.
+func (c *Config) inherit(md toml.MetaData, shipped map[string]Harness) {
+	for name, h := range c.Harnesses {
+		base, ok := shipped[name]
+		if !ok || base.Command != h.Command {
+			continue // a harness H2H does not ship, or another program under its name
+		}
+		named := func(key string) bool { return md.IsDefined("harness", name, key) }
+		conversationNamed := false
+		for _, key := range conversationSettings {
+			conversationNamed = conversationNamed || named(key)
+		}
+		mine, theirs := reflect.ValueOf(&h).Elem(), reflect.ValueOf(base)
+		for i := 0; i < mine.NumField(); i++ {
+			key := mine.Type().Field(i).Tag.Get("toml")
+			if named(key) || (conversationNamed && slices.Contains(conversationSettings, key)) {
+				continue
+			}
+			mine.Field(i).Set(theirs.Field(i))
+		}
+		c.Harnesses[name] = h
 	}
-	return c, nil
 }
 
 // Load reads the project's config file. A project without one gets the

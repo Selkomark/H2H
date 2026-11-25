@@ -59,6 +59,8 @@ depends_on = ["ui", "backend"]
 | `[[domain.<name>.subagent]]` | A specialist role (`role`, `does`) the owner is asked to use inside the domain. Advice to the harness: H2H cannot see or enforce it |
 | `depends_on` | Domains whose work this one waits for. A domain without it runs in parallel. Circles are rejected |
 
+A harness entry with the name and program of one H2H ships only needs the settings it changes: every setting it does not name comes from the shipped entry. A project written for an earlier H2H therefore gets what later versions add, such as the console's conversation settings, without being edited. A setting named with an empty value, such as `permit_args = []`, stays empty, which is how a project turns one off. An entry for another program, or under another name, gets nothing from the shipped ones.
+
 Unknown settings are rejected, so a typing mistake is reported instead of ignored.
 
 ### Changing it

@@ -25,6 +25,12 @@ context_args = ["--append-system-prompt", "{roles}"]
 [harness.codex]
 command = "codex"
 args = ["--full-auto"]
+# Settings named as empty are kept empty, instead of coming from the
+# shipped codex entry.
+ask_args = []
+pass_env = []
+context_args = []
+context_env = []
 
 [domain.ui]
 harness = "claude"
@@ -118,8 +124,11 @@ default_harness = "claude"
 [harness.claude]
 command = "claude"
 context_args = ["--append-system-prompt", "{roles}"]
+permit_args = []
 [harness.codex]
 command = "codex"
+context_args = []
+context_env = []
 [domain.api]
 harness = "codex"
 [domain.ui]

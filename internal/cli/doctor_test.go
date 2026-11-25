@@ -210,17 +210,25 @@ func TestDoctorChangesNothing(t *testing.T) {
 
 func TestDoctorNamesSettingsAnOlderConfigLacks(t *testing.T) {
 	t.Setenv("PATH", "/usr/bin:/bin") // keep the real harness off PATH
-	// A config as an earlier H2H wrote it: the shipped harness, with only
-	// the settings that existed then.
+	// A config as an earlier H2H wrote it, for the shipped claude program:
+	// what it does not name comes from the shipped entry, so nothing is
+	// missing. Another program under the name claude gets nothing, and
+	// doctor names what it lacks.
 	e, out := doctorEnv(t, "default_harness = \"claude\"\n[harness.claude]\ncommand = \"claude\"\nask_args = [\"--permission-mode\", \"plan\", \"-p\"]\n[harness.mine]\ncommand = \"sh\"\n")
+	_ = e.doctor(context.Background(), nil)
+	if strings.Contains(out.String(), "that H2H ships for it") {
+		t.Errorf("settings an older config inherits were reported as missing:\n%s", out)
+	}
+
+	e, out = doctorEnv(t, "default_harness = \"claude\"\n[harness.claude]\ncommand = \"my-claude\"\nask_args = [\"-p\"]\n")
 	_ = e.doctor(context.Background(), nil)
 	for _, want := range []string{"! claude", "that H2H ships for it", `report_args = ["--allowedTools", "Bash(h2h-report:*)"]`, `stream_text = "event.delta.text"`, "permit_args = [\"--settings\","} {
 		if !strings.Contains(out.String(), want) {
 			t.Errorf("output lacks %q:\n%s", want, out)
 		}
 	}
-	if strings.Contains(out.String(), "[harness.mine]") || strings.Contains(out.String(), "ask_args = ") {
-		t.Errorf("a harness H2H does not ship, or a setting that is there, was reported:\n%s", out)
+	if strings.Contains(out.String(), "ask_args = ") {
+		t.Errorf("a setting that is there was reported:\n%s", out)
 	}
 	// The lines shown are valid config.
 	shipped, _ := config.Parse(config.Template())

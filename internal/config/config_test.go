@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -115,5 +116,64 @@ func TestLacksCountsAnEmptyListAsUnset(t *testing.T) {
 	}
 	if got := (Harness{Command: "x", Args: []string{}}).Lacks(Harness{Command: "x", Args: []string{}}); len(got) != 0 {
 		t.Errorf("Lacks() of a setting H2H ships empty = %q", got)
+	}
+}
+
+func TestProjectHarnessInheritsShippedSettings(t *testing.T) {
+	// A project written before conversations existed: its claude entry
+	// names a few settings and none of the conversation ones.
+	text := "default_harness = \"claude\"\n" +
+		"[harness.claude]\ncommand = \"claude\"\nargs = []\nask_args = [\"-p\"]\n" +
+		"[harness.codex]\ncommand = \"codex\"\nask_args = [\"exec\"]\n" +
+		"[harness.mine]\ncommand = \"my-agent\"\nask_args = [\"--once\"]\n"
+	c, err := Parse(text)
+	if err != nil {
+		t.Fatal(err)
+	}
+	shipped := shippedHarnesses()
+
+	claude := c.Harnesses["claude"]
+	if !slices.Equal(claude.AskArgs, []string{"-p"}) {
+		t.Errorf("claude ask_args = %q; a setting the file names must be kept", claude.AskArgs)
+	}
+	if claude.Args == nil || len(claude.Args) != 0 {
+		t.Errorf("claude args = %q; an empty list the file names must stay empty", claude.Args)
+	}
+	if !slices.Equal(claude.ResumeArgs, shipped["claude"].ResumeArgs) || !claude.Remembers() {
+		t.Errorf("claude resume_args = %q; want the shipped ones inherited", claude.ResumeArgs)
+	}
+	if !slices.Equal(claude.StreamArgs, shipped["claude"].StreamArgs) {
+		t.Errorf("claude stream_args = %q; want the shipped ones inherited", claude.StreamArgs)
+	}
+	if codex := c.Harnesses["codex"]; codex.ConversationKey != shipped["codex"].ConversationKey || !codex.Remembers() {
+		t.Errorf("codex conversation settings = %q, %q; want the shipped ones", codex.ConversationKey, codex.ResumeArgs)
+	}
+	if mine := c.Harnesses["mine"]; mine.Remembers() || len(mine.StreamArgs) > 0 {
+		t.Errorf("a harness H2H does not ship inherited settings: %+v", mine)
+	}
+}
+
+func TestInheritSkipsAnotherProgramUnderAShippedName(t *testing.T) {
+	c, err := Parse("default_harness = \"claude\"\n[harness.claude]\ncommand = \"my-claude-wrapper\"\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if h := c.Harnesses["claude"]; h.Remembers() || len(h.AskArgs) > 0 {
+		t.Errorf("another program named claude inherited claude's settings: %+v", h)
+	}
+}
+
+func TestConversationSettingsAreInheritedTogether(t *testing.T) {
+	// A project that set its own way of naming conversations keeps it whole,
+	// without the shipped conversation_key for the same harness.
+	text := "default_harness = \"codex\"\n[harness.codex]\ncommand = \"codex\"\n" +
+		"stream_args = [\"exec\", \"--json\"]\nstream_text = \"item.text\"\n" +
+		"conversation_args = [\"exec\", \"--id\", \"{conversation}\"]\nresume_args = [\"exec\", \"resume\", \"{conversation}\"]\n"
+	c, err := Parse(text)
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if h := c.Harnesses["codex"]; h.ConversationKey != "" || !h.NamesConversation() {
+		t.Errorf("codex = key %q, names %v; want the project's own settings only", h.ConversationKey, h.NamesConversation())
 	}
 }
