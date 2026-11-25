@@ -573,7 +573,7 @@ Every harness is checked the same way, from its config entry. How each one print
 
 | Run as | Looks at | Offers |
 |---|---|---|
-| `install` | Every configured harness, or those named | The ones that are not installed |
+| `install` | Every configured harness, or those named | The ones that are not installed, and those that are there but do not run |
 | `install --update` | The installed ones | Those whose latest version is newer than the installed one, shown as `2.1.331 → 2.1.340` |
 
 What it offers is shown in a dialog with every entry ticked, each with the command that will be run. The user unticks what to leave alone and confirms, or cancels. Nothing is installed before that, and nothing that is not ticked.
@@ -586,7 +586,7 @@ After each install H2H checks the result instead of trusting the installer's exi
 
 `install <name>` also takes a harness that H2H supports and the config does not have, and uses the entry H2H ships for it. Plain `install` lists those without offering them, and after such an install H2H says the harness still has to be added to the config. `/config` does that: the conversation is given the shipped entry of every supported harness the config lacks, and whether it is installed, so the harness holding the conversation can add it as shipped.
 
-A harness left out is listed with the reason: already installed, up to date, no `install_command` in the config, or its installer (such as npm) is not installed. Sessions that are running keep the version they started with.
+A harness left out is listed with the reason: already installed, up to date, does not run (under `--update`), no `install_command` in the config, or its installer (such as npm) is not installed. Sessions that are running keep the version they started with.
 
 The installer runs with the user's own environment, not the reduced one a harness gets, because it is the user's package manager and needs its settings. All three shipped harnesses are published as npm packages, so all three are installed the same way:
 
@@ -602,6 +602,8 @@ The installer runs with the user's own environment, not the reduced one a harnes
 A harness installed another way, such as a native installer or a package manager other than npm, needs its `install_command` and `latest_command` changed to match, or an update will install a second copy beside it. H2H reports that case when the version does not change.
 
 ## Implementation
+A program on PATH is not proof of an install: a terminal may put a stand-in there that only passes the call on, as cmux does for `codex`. So where a harness has `version_args`, H2H runs them. If that fails, the harness does not run: `install` shows the error and offers it, marked "does not run", and `install --update` shows the error and points at `install <name>`.
+
 
 **Language: Go.**
 

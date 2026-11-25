@@ -29,6 +29,8 @@ type installJob struct {
 	h    config.Harness
 	from string // the version installed now; "" when it is not installed
 	to   string // the latest version, when known
+	// broken says the program is there but does not run.
+	broken bool
 }
 
 // install installs the harnesses that are missing, at their latest version.
@@ -75,16 +77,20 @@ func (e *env) install(ctx context.Context, args []string) error {
 			added = append(added, name)
 		}
 		job, note := e.installJob(ctx, name, h, update)
-		if job == nil {
+		if note != "" {
 			fmt.Fprintf(e.out, "  %-10s %s\n", name, note)
-			continue
 		}
-		jobs = append(jobs, *job)
+		if job != nil {
+			jobs = append(jobs, *job)
+		}
 	}
 	if all && !update {
 		for _, name := range extra {
 			state := "not installed; install it with: " + e.st.accent.Render("install "+name)
-			if _, err := exec.LookPath(shipped.Harnesses[name].Command); err == nil {
+			switch found, _, err := e.probe(ctx, shipped.Harnesses[name]); {
+			case found && err != nil:
+				state = "installed but does not run; reinstall it with: " + e.st.accent.Render("install "+name)
+			case found:
 				state = "installed"
 			}
 			fmt.Fprintf(e.out, "  %-10s %s\n", name, e.st.dim.Render("- supported, not in "+config.FileName+"; ")+state)
@@ -138,32 +144,57 @@ func (e *env) install(ctx context.Context, args []string) error {
 	return nil
 }
 
-// installJob decides whether a harness is offered to the user. When it is
-// not, the note says why.
+// probe looks for a harness's program and, with version_args set, runs it.
+// An error means the program is there but does not run: being on PATH is
+// not enough, since a terminal may put a stand-in there for a harness that
+// is not installed.
+func (e *env) probe(ctx context.Context, h config.Harness) (found bool, version string, err error) {
+	if _, err := exec.LookPath(h.Command); err != nil {
+		return false, "", nil
+	}
+	if len(h.VersionArgs) == 0 {
+		return true, "", nil
+	}
+	vctx, cancel := context.WithTimeout(ctx, versionTimeout)
+	defer cancel()
+	version, err = harness.Version(vctx, h, e.environ)
+	return true, version, err
+}
+
+// installJob decides whether a harness is offered to the user, and what to
+// say about it. A harness that is not offered always has a note.
 func (e *env) installJob(ctx context.Context, name string, h config.Harness, update bool) (job *installJob, note string) {
 	st := e.st
-	_, err := exec.LookPath(h.Command)
-	installed := err == nil
-	current := ""
-	if installed && len(h.VersionArgs) > 0 {
-		vctx, cancel := context.WithTimeout(ctx, versionTimeout)
-		current, _ = harness.Version(vctx, h, e.environ)
-		cancel()
+	installed, current, runErr := e.probe(ctx, h)
+	broken := ""
+	if runErr != nil {
+		broken = st.warn.Render("!") + " installed but does not run: " + runErr.Error()
+		if update {
+			return nil, broken + "; reinstall it with: " + st.accent.Render("install "+name)
+		}
+	}
+	// refuse explains why H2H cannot install a harness, without losing
+	// what is wrong with the one that is there.
+	refuse := func(why string) (*installJob, string) {
+		if broken != "" {
+			return nil, broken + "; H2H cannot reinstall it, because it" + why
+		}
+		return nil, st.warn.Render("!") + " " + why
 	}
 
 	switch {
-	case !update && installed:
+	case !update && installed && runErr == nil:
 		return nil, st.good.Render("✓") + " already installed " + st.dim.Render(current)
 	case update && !installed:
 		return nil, st.dim.Render("- not installed; install it with: ") + st.accent.Render("install "+name)
 	case len(h.InstallCommand) == 0:
-		return nil, st.warn.Render("!") + " has no install_command in the config, so H2H cannot install it"
+		return refuse("has no install_command in the config, so H2H cannot install it")
 	}
 	if _, err := exec.LookPath(h.InstallCommand[0]); err != nil {
-		return nil, st.warn.Render("!") + fmt.Sprintf(" is installed with %s, which is not installed or not on PATH", h.InstallCommand[0])
+		return refuse(fmt.Sprintf("is installed with %s, which is not installed or not on PATH", h.InstallCommand[0]))
 	}
 	if !update {
-		return &installJob{name: name, h: h}, ""
+		return &installJob{name: name, h: h, broken: runErr != nil}, broken
 	}
 
 	if current == "" {
@@ -190,6 +221,9 @@ func (e *env) installJob(ctx context.Context, name string, h config.Harness, upd
 // that makes the change.
 func (j installJob) label() string {
 	change := "not installed"
+	if j.broken {
+		change = "does not run"
+	}
 	if j.from != "" {
 		change = j.from + " → " + j.to
 	}
@@ -216,7 +250,7 @@ func (e *env) runInstall(ctx context.Context, j installJob) error {
 		now, err = harness.Version(vctx, j.h, e.environ)
 		cancel()
 		if err != nil {
-			return fmt.Errorf("it was installed but does not run: %w", err)
+			return fmt.Errorf("it was installed but %s does not run: %w", path, err)
 		}
 	}
 	// An update that leaves the version unchanged means another copy of

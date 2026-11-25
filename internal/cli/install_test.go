@@ -131,6 +131,55 @@ func TestInstallMissingHarness(t *testing.T) {
 	}
 }
 
+// installBroken puts a program on PATH that is found but does not run, like
+// a terminal's stand-in for a harness that is not installed.
+func installBroken(t *testing.T, bin, name string) {
+	t.Helper()
+	script := "#!/bin/sh\necho 'Error: " + name + " not found in PATH' >&2\nexit 127\n"
+	if err := os.WriteFile(filepath.Join(bin, name), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestInstallOffersAHarnessThatDoesNotRun(t *testing.T) {
+	conf := func(bin string) string { return "default_harness = \"alpha\"\n" + fakeTool(bin, "alpha", "2.0.0") }
+	e, ui, bin, output := installEnv(t, conf, takeAll)
+	installBroken(t, bin, "alpha")
+
+	if err := e.install(context.Background(), nil); err != nil {
+		t.Fatalf("install: %v\n%s", err, output())
+	}
+	if len(ui.labels) != 1 || !strings.Contains(ui.labels[0], "does not run") {
+		t.Errorf("offered %q; want the harness that does not run", ui.labels)
+	}
+	for _, want := range []string{"installed but does not run: exit status 127: Error: alpha not found in PATH", "✓ alpha now 2.0.0"} {
+		if !strings.Contains(output(), want) {
+			t.Errorf("output lacks %q:\n%s", want, output())
+		}
+	}
+	if strings.Contains(output(), "already installed") {
+		t.Errorf("a harness that does not run is called installed:\n%s", output())
+	}
+}
+
+func TestInstallUpdateSaysAHarnessDoesNotRun(t *testing.T) {
+	conf := func(bin string) string { return "default_harness = \"alpha\"\n" + fakeTool(bin, "alpha", "2.0.0") }
+	e, ui, bin, output := installEnv(t, conf, takeAll)
+	installBroken(t, bin, "alpha")
+
+	if err := e.install(context.Background(), []string{updateFlag}); err != nil {
+		t.Fatalf("install --update: %v\n%s", err, output())
+	}
+	for _, want := range []string{"installed but does not run: exit status 127", "reinstall it with: install alpha"} {
+		if !strings.Contains(output(), want) {
+			t.Errorf("output lacks %q:\n%s", want, output())
+		}
+	}
+	if strings.Contains(output(), "version_args") || len(ui.labels) != 0 {
+		t.Errorf("offered %q, with output:\n%s", ui.labels, output())
+	}
+}
+
 func TestInstallDeclined(t *testing.T) {
 	conf := func(bin string) string { return "default_harness = \"beta\"\n" + fakeTool(bin, "beta", "3.1.0") }
 	e, _, bin, output := installEnv(t, conf, takeNone)
