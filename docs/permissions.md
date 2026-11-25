@@ -150,6 +150,7 @@ When H2H cannot judge a request, it never allows it: a request it cannot read, o
 | Claude Code | `permit_args = ["--settings", '{"hooks":{"PermissionRequest":[...{permit}..."timeout":600...]}}']`, a settings source added for the session, beside the user's own. The time limit is stated because the hook otherwise gives up before a person has answered, and the prompt appears after all | 2.1.331 | Behaves: in a session started in manual mode, a command with no rule reached H2H's queue; allowed after a 75-second wait it ran, denied it did not run and the report said the user declined; no prompt appeared in its terminal either time |
 | Codex CLI | Not wired. It takes the same hook and the same answer, as a config override, but asks the user to review each new hook unless started with a flag that skips the review. Which of the two H2H should do is the user's decision, and the check that would settle the details was not run | 0.172.0 | None |
 | Copilot CLI | Not wired. It reads hooks only from files in its user folder, so this needs an install the user approves; see [runtime.md](runtime.md) | 1.0.114 | None |
+| OpenCode | Not wired. It has no hook that runs a program: a permission request goes to the client attached to its server, which answers once, always or reject over its HTTP API. Wiring it needs code that talks to that API. Its own default allows everything except reading `.env` files, so a session does not stop to ask | 2.4.1 | None |
 
 A harness that is not wired behaves as it does on its own: it stops at a prompt in its terminal, and the user answers by attaching. `h2h start` says so when it starts one.
 
@@ -170,6 +171,7 @@ What the tests showed about each harness:
 | Claude Code | `PermissionRequest`, only when it is about to ask | Hooks can be passed on the command line |
 | Copilot CLI | `permissionRequest`, on every tool call | The policy is consulted even for actions its own rules allow |
 | Codex CLI | `PermissionRequest`, only when the model asks to leave the sandbox | Enforces by sandbox. Its instructions must say to request approval when the sandbox blocks a command, or the model reports the failure and stops |
+| OpenCode | None that runs a program; requests are answered by a client over its HTTP API | Allows every action by default, so the H2H rules are not consulted |
 
 Consequences for the design:
 

@@ -146,8 +146,8 @@ func TestShippedHarnessesReportVersion(t *testing.T) {
 		if !c.Harnesses[name].Streams() {
 			t.Errorf("shipped harness %q has no stream_args, so its answers cannot be shown as they arrive", name)
 		}
-		if !c.Harnesses[name].ChecksTrust() {
-			t.Errorf("shipped harness %q has no trust settings, so doctor cannot check its permission", name)
+		if !c.Harnesses[name].ChecksTrust() && !c.Harnesses[name].NoTrustQuestion {
+			t.Errorf("shipped harness %q has no trust settings and does not say it asks no trust question, so doctor cannot check its permission", name)
 		}
 		if len(c.Harnesses[name].AskArgs) == 0 {
 			t.Errorf("shipped harness %q has no ask_args, so doctor cannot check its login", name)

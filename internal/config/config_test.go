@@ -2,6 +2,7 @@ package config
 
 import (
 	"os"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -14,7 +15,7 @@ func TestShippedDefault(t *testing.T) {
 	if c.DefaultHarness != "claude" {
 		t.Errorf("DefaultHarness = %q, want %q", c.DefaultHarness, "claude")
 	}
-	if got, want := strings.Join(c.Names(), ","), "claude,codex,copilot"; got != want {
+	if got, want := strings.Join(c.Names(), ","), "claude,codex,copilot,opencode"; got != want {
 		t.Errorf("Names() = %q, want %q", got, want)
 	}
 }
@@ -73,5 +74,46 @@ func TestLoad(t *testing.T) {
 	c, err = Load(root)
 	if err != nil || c.DefaultHarness != "x" {
 		t.Fatalf("Load with a file = %+v, %v; want default x", c, err)
+	}
+}
+
+func TestUnconfigured(t *testing.T) {
+	// A config written before a harness was added does not have it.
+	c, err := Parse("default_harness = \"cc\"\n[harness.cc]\ncommand = \"claude\"\n[harness.codex]\ncommand = \"codex\"\n[harness.codex-low]\ncommand = \"codex\"\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// claude is there under another name, so it is not offered again.
+	if got, want := strings.Join(c.Unconfigured(), ","), "copilot,opencode"; got != want {
+		t.Errorf("Unconfigured() = %q, want %q", got, want)
+	}
+	if got := Shipped().Unconfigured(); len(got) != 0 {
+		t.Errorf("the shipped config lacks its own harnesses: %v", got)
+	}
+}
+
+func TestShippedEntryParsesBack(t *testing.T) {
+	for _, name := range Shipped().Names() {
+		entry := ShippedEntry(name)
+		if !strings.HasPrefix(entry, "[harness."+name+"]\ncommand = ") {
+			t.Errorf("ShippedEntry(%q) =\n%s", name, entry)
+		}
+		c, err := Parse("default_harness = \"" + name + "\"\n" + entry + "\n")
+		if err != nil || !reflect.DeepEqual(c.Harnesses[name], Shipped().Harnesses[name]) {
+			t.Errorf("the entry of %q does not parse back to the shipped harness: %v\n%s", name, err, entry)
+		}
+	}
+	if got := ShippedEntry("nothing"); got != "" {
+		t.Errorf("ShippedEntry of an unknown harness = %q", got)
+	}
+}
+
+func TestLacksCountsAnEmptyListAsUnset(t *testing.T) {
+	shipped := Harness{Command: "x", Args: []string{"--standalone"}}
+	if got := (Harness{Command: "x", Args: []string{}}).Lacks(shipped); len(got) != 1 || got[0] != `args = ["--standalone"]` {
+		t.Errorf("Lacks() = %q; want the shipped args offered", got)
+	}
+	if got := (Harness{Command: "x", Args: []string{}}).Lacks(Harness{Command: "x", Args: []string{}}); len(got) != 0 {
+		t.Errorf("Lacks() of a setting H2H ships empty = %q", got)
 	}
 }

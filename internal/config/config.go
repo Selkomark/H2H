@@ -77,6 +77,9 @@ type Harness struct {
 	TrustFile  string   `toml:"trust_file"`
 	TrustKey   []string `toml:"trust_key"`
 	TrustValue string   `toml:"trust_value"`
+	// NoTrustQuestion says the harness starts in any folder without
+	// asking whether the user trusts it, so there is nothing to check.
+	NoTrustQuestion bool `toml:"no_trust_question"`
 	// ContextArgs and ContextEnv tell a session started for a domain what
 	// its role is. In ContextArgs, {roles} is replaced by the roles as XML.
 	// In ContextEnv, entries are NAME=value and {roles_dir} is replaced by
@@ -144,7 +147,7 @@ func (h Harness) Lacks(shipped Harness) []string {
 	var lines []string
 	mine, theirs := reflect.ValueOf(h), reflect.ValueOf(shipped)
 	for i := 0; i < mine.NumField(); i++ {
-		if !mine.Field(i).IsZero() || theirs.Field(i).IsZero() {
+		if !unset(mine.Field(i)) || unset(theirs.Field(i)) {
 			continue
 		}
 		name := mine.Type().Field(i).Tag.Get("toml")
@@ -328,6 +331,9 @@ const ProjectPlaceholder = "{project}"
 func (h Harness) ChecksTrust() bool { return h.TrustFile != "" }
 
 func (h Harness) validateTrust() error {
+	if h.NoTrustQuestion && h.ChecksTrust() {
+		return errors.New("no_trust_question says there is no trust record to read, so it cannot be set with trust_file")
+	}
 	if h.TrustFile == "" && len(h.TrustKey) == 0 && h.TrustValue == "" {
 		return nil
 	}
@@ -446,4 +452,55 @@ func (c Config) dependencyCycle() []string {
 		}
 	}
 	return nil
+}
+
+// Shipped returns the config H2H ships with. Its harnesses are the ones
+// this version of H2H supports, whatever a project's own config lists.
+func Shipped() Config {
+	c, _ := Parse(defaultTOML) // a test keeps the shipped config valid
+	return c
+}
+
+// Unconfigured returns the names of the shipped harnesses that c does not
+// have: neither under their name nor, for a harness the user renamed,
+// under their program. They are the harnesses a config written for an
+// earlier H2H does not know about.
+func (c Config) Unconfigured() []string {
+	shipped := Shipped()
+	var names []string
+	for _, name := range shipped.Names() {
+		_, named := c.Harnesses[name]
+		program := shipped.Harnesses[name].Command
+		used := false
+		for _, h := range c.Harnesses {
+			used = used || h.Command == program
+		}
+		if !named && !used {
+			names = append(names, name)
+		}
+	}
+	return names
+}
+
+// ShippedEntry returns the shipped config's table for one harness, as the
+// text to add to a config file, or "" when H2H ships none of that name.
+func ShippedEntry(name string) string {
+	var entry []string
+	for _, line := range strings.Split(defaultTOML, "\n") {
+		switch {
+		case line == "[harness."+name+"]":
+			entry = []string{line}
+		case len(entry) > 0 && (strings.TrimSpace(line) == "" || strings.HasPrefix(line, "[") || strings.HasPrefix(line, "#")):
+			return strings.Join(entry, "\n")
+		case len(entry) > 0:
+			entry = append(entry, line)
+		}
+	}
+	return strings.Join(entry, "\n")
+}
+
+// unset reports whether a setting was left out or given no value: an
+// empty list, as "args = []" writes it, sets nothing either.
+func unset(v reflect.Value) bool {
+	return v.IsZero() || (v.Kind() == reflect.Slice && v.Len() == 0)
 }

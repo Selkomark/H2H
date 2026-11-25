@@ -375,6 +375,7 @@ A harness that stops to ask for permission in the middle of the work does not st
 | Claude Code | `report_args = ["--allowedTools", "Bash(h2h-report:*)"]` | 2.1.331 | Behaves: the request appeared in its session and its report came back |
 | Codex CLI | Nothing: its sandbox lets the command run. It does not keep the PATH it was started with, so it uses the full path given in the request | 0.172.0 | Behaves: the request appeared in its session and its report came back |
 | Copilot CLI | `report_args = ["--allow-tool", "shell(h2h-report:*)"]` | 1.0.114 | None. Copilot does not trust the test project, so the guard refused to type into it, as intended. The option is from its help text and was not seen working |
+| OpenCode | Nothing: it allows shell commands by default | 2.4.1 | Behaves: the request appeared in its session and its report came back |
 
 ### Streaming
 
@@ -385,6 +386,7 @@ An answer is shown while it is written. Each harness can print its events as JSO
 | Claude Code | `--permission-mode plan -p --output-format stream-json --include-partial-messages --verbose` | `event.delta.text` | In parts, as written | 2.1.331 | Behaves: a forty-line answer began at 5.6 s and ended at 7.5 s |
 | Copilot CLI | `--output-format json --stream on -p` | `data.deltaContent` | In parts, as written | 1.0.114 | Behaves: the same answer began at 4.5 s and ended at 6.5 s |
 | Codex CLI | `exec --sandbox read-only --json` | `item.text`, where `item.type` is `agent_message` | A whole message at a time: Codex does not print parts | 0.172.0 | Behaves: the answer arrived whole at 5.9 s |
+| OpenCode | `run --standalone --agent plan --format json` | `part.text`, where `type` is `text` | A whole part at a time | 2.4.1 | Accepted: the JSON lines were read from a real run and the shape is in the tests. Not watched in the console |
 
 When a run fails, H2H shows what the harness itself said, such as a usage limit that was reached and when it resets, or a login that expired. A harness reports that in an event marked as an error, or prints it in place of its answer, and both are passed on. Only when it said nothing does H2H show the exit status, with the command to run by hand.
 
@@ -442,6 +444,8 @@ The files are private to the user, like the rest of the state directory. They ho
 | each harness: login | The harness gives one short answer through its `ask_args` | As above |
 | each harness: permission | The harness's own record says the user trusts the project, or a folder above it | Warns: a session of that harness waits at its trust question until someone attaches and answers |
 
+**Harnesses the config does not have.** The binary carries the config it ships with, so it knows every harness its own version supports, whatever a project's `h2h.toml` lists. A config written for an earlier H2H does not name what was added since. Doctor lists those under "Also supported", with whether each is installed. They are neither warnings nor failures. A harness the user renamed is recognised by its program and not listed again.
+
 A warning does not change the exit status. Any failure makes `h2h doctor` exit with an error, so it can gate a script.
 
 Doctor takes no options: every check runs every time. Proving a login costs one short answer from each installed harness, so a run takes some seconds per harness and uses a little of each one's allowance. A harness without `ask_args` gets a warning that its login was not checked.
@@ -453,6 +457,7 @@ No harness offers a command that says whether it trusts a folder, so for the per
 | Claude Code | `~/.claude.json` | `projects`, `{project}`, `hasTrustDialogAccepted` | `true` | 2.1.331 | Loaded: doctor read the record Claude Code wrote for a project trusted through its own dialog, and reported it trusted |
 | Codex CLI | `~/.codex/config.toml` | `projects`, `{project}`, `trust_level` | `trusted` | 0.172.0 | Loaded: doctor read the record Codex wrote for a trusted project, and reported it trusted |
 | Copilot CLI | `~/.copilot/config.json` | `trustedFolders` | `{project}` | 1.0.114 | Half: doctor read Copilot's file, which starts with `//` comment lines and held no trusted folder, and reported the project as not trusted. A record written by Copilot for a trusted folder was not seen, so the key is from its documentation only |
+| OpenCode | None: `no_trust_question = true` | | | 2.4.1 | Behaves: started in a new repository it went straight to its prompt, with no trust question |
 
 Two limits of reading the record: a harness that moves or renames it in a later version makes the check report "not trusted" until the config is corrected, and Claude Code treats a nested repository as separate from the folder above it, which this check does not model.
 
@@ -463,6 +468,7 @@ Every harness is checked the same way, from its config entry. How each one print
 | Claude Code | `version_args = ["--version"]` | 2.1.331 | Behaves: doctor printed the version and got an answer |
 | Codex CLI | `version_args = ["--version"]` | 0.172.0 | Behaves: doctor printed the version and got an answer |
 | Copilot CLI | `version_args = ["--version"]` | 1.0.114 | Behaves: doctor printed the version and got an answer |
+| OpenCode | `version_args = ["--version"]` | 2.4.1 | Behaves: doctor printed the version and got an answer, from its free model with no login |
 
 ## Install
 
@@ -481,6 +487,8 @@ After each install H2H checks the result instead of trusting the installer's exi
 - **The program runs,** by its `version_args`.
 - **An update changed the version.** If the version is the same as before, another copy of the harness comes first on PATH, and H2H names the one it found.
 
+`install <name>` also takes a harness that H2H supports and the config does not have, and uses the entry H2H ships for it. Plain `install` lists those without offering them, and after such an install H2H says the harness still has to be added to the config. `/config` does that: the conversation is given the shipped entry of every supported harness the config lacks, and whether it is installed, so the harness holding the conversation can add it as shipped.
+
 A harness left out is listed with the reason: already installed, up to date, no `install_command` in the config, or its installer (such as npm) is not installed. Sessions that are running keep the version they started with.
 
 The installer runs with the user's own environment, not the reduced one a harness gets, because it is the user's package manager and needs its settings. All three shipped harnesses are published as npm packages, so all three are installed the same way:
@@ -490,6 +498,7 @@ The installer runs with the user's own environment, not the reduced one a harnes
 | Claude Code | `npm install -g @anthropic-ai/claude-code@latest` | `npm view @anthropic-ai/claude-code version` | npm 11.19.1 | `latest_command` behaves: it printed 2.1.331, and `install --update` reported the installed 2.1.331 as up to date. `install_command` was not run |
 | Codex CLI | `npm install -g @openai/codex@latest` | `npm view @openai/codex version` | npm 11.19.1 | `latest_command` behaves: it printed 0.172.0, and `install --update` reported the installed 0.172.0 as up to date. `install_command` was not run |
 | Copilot CLI | `npm install -g @github/copilot@latest` | `npm view @github/copilot version` | npm 11.19.1 | `latest_command` behaves: it printed 1.0.114. `install` offered it as not installed. `install_command` was not run |
+| OpenCode | `npm install -g @opencode/cli@latest` | `npm view @opencode/cli version` | npm 11.19.1 | `install_command` behaves: the user ran `install opencode` and 2.4.1 was installed and found. `latest_command` printed 2.4.1 |
 
 `install_command` was run for none of the three, because it changes what is installed for the user. The install, the check afterwards and the update are covered by tests with stand-in harnesses.
 

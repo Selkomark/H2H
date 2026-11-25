@@ -1,6 +1,6 @@
 ---
 name: harness-parity
-description: Rule and checklist for keeping every supported harness (Claude Code, Copilot CLI, Codex CLI) at the same level of support in H2H. Use whenever a change touches how H2H starts, configures, prompts, hooks or reads a harness, whenever a harness's flag, file or environment variable is added to config or code, and whenever something is tested or verified on one harness.
+description: Rule and checklist for keeping every supported harness (Claude Code, Copilot CLI, Codex CLI, OpenCode) at the same level of support in H2H. Use whenever a change touches how H2H starts, configures, prompts, hooks or reads a harness, whenever a harness's flag, file or environment variable is added to config or code, and whenever something is tested or verified on one harness.
 ---
 
 # Harness parity
@@ -11,7 +11,7 @@ H2H's promise is one behaviour for every harness (`docs/runtime.md`, "One behavi
 
 **Whatever is built or tested for one harness is built and tested for all of them, in the same change.**
 
-The supported harnesses are those in `internal/config/default.toml`: today Claude Code, Copilot CLI and Codex CLI. A new entry there joins this list.
+The supported harnesses are those in `internal/config/default.toml`: today Claude Code, Copilot CLI, Codex CLI and OpenCode. A new entry there joins this list.
 
 - Do not finish a change with a harness left out. If one harness truly cannot do it, follow section 4 and record the gap. Never leave it unmentioned.
 - Do not report "verified" for the feature when only one harness was checked. Report per harness.
@@ -30,7 +30,7 @@ Differences between products are data, not code (`.claude/skills/go-architecture
 Install all three CLIs in a scratch directory, never globally and never into the repository:
 
 ```sh
-cd <scratch> && npm init -y && npm install @anthropic-ai/claude-code @github/copilot @openai/codex
+cd <scratch> && npm init -y && npm install @anthropic-ai/claude-code @github/copilot @openai/codex @opencode/cli
 ```
 
 Then check each harness at the deepest level that can be reached, and record the level reached for each one.

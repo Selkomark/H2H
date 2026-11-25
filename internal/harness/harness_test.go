@@ -156,6 +156,14 @@ func TestAskStream(t *testing.T) {
 {"type":"item.completed","item":{"type":"agent_message","text":"second"}}`,
 			"first\nsecond\n",
 		},
+		{
+			"whole parts, marked by the type of the line",
+			config.Harness{StreamText: "part.text", StreamWhen: "type=text", StreamWhole: true},
+			`{"type":"step_start","part":{"type":"step-start"}}
+{"type":"text","part":{"type":"text","text":"OK"}}
+{"type":"step_finish","part":{"type":"step-finish","reason":"stop"}}`,
+			"OK\n",
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

@@ -39,7 +39,7 @@ ticket, policy  ->  standard library only
 
 - A core package never imports an adapter.
 - One harness adapter never imports another. Shared behaviour goes in `harness`.
-- Product names (`claude`, `copilot`, `codex`) appear only in the shipped config (`internal/config/default.toml`) and inside `internal/harness/<product>`. Prefer config: a product gets a package only for behaviour that data cannot express. Code elsewhere that branches on a product is a bug: the difference belongs in the adapter or in config (see `docs/runtime.md`, "One behaviour for every harness").
+- Product names (`claude`, `copilot`, `codex`, `opencode`) appear only in the shipped config (`internal/config/default.toml`) and inside `internal/harness/<product>`. Prefer config: a product gets a package only for behaviour that data cannot express. Code elsewhere that branches on a product is a bug: the difference belongs in the adapter or in config (see `docs/runtime.md`, "One behaviour for every harness").
 
 ## 3. Layout
 

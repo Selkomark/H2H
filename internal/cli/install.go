@@ -51,18 +51,29 @@ func (e *env) install(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	if len(names) == 0 {
+	// A harness this H2H supports can be installed before the project's
+	// config lists it: a config written for an earlier H2H does not know
+	// what has been added since.
+	shipped, extra := config.Shipped(), cfg.Unconfigured()
+	all := len(names) == 0
+	if all {
 		names = cfg.Names()
 	}
 	for _, name := range names {
-		if _, _, err := cfg.Lookup(name); err != nil {
-			return err
+		if _, ok := cfg.Harnesses[name]; !ok && !slices.Contains(extra, name) {
+			_, _, err := cfg.Lookup(name)
+			return fmt.Errorf("%w; H2H also supports: %s", err, orNone(extra))
 		}
 	}
 
 	var jobs []installJob
+	var added []string // named, and not in the config yet
 	for _, name := range names {
-		h := cfg.Harnesses[name]
+		h, ok := cfg.Harnesses[name]
+		if !ok {
+			h = shipped.Harnesses[name]
+			added = append(added, name)
+		}
 		job, note := e.installJob(ctx, name, h, update)
 		if job == nil {
 			fmt.Fprintf(e.out, "  %-10s %s\n", name, note)
@@ -70,6 +81,20 @@ func (e *env) install(ctx context.Context, args []string) error {
 		}
 		jobs = append(jobs, *job)
 	}
+	if all && !update {
+		for _, name := range extra {
+			state := "not installed; install it with: " + e.st.accent.Render("install "+name)
+			if _, err := exec.LookPath(shipped.Harnesses[name].Command); err == nil {
+				state = "installed"
+			}
+			fmt.Fprintf(e.out, "  %-10s %s\n", name, e.st.dim.Render("- supported, not in "+config.FileName+"; ")+state)
+		}
+	}
+	defer func() {
+		if len(added) > 0 {
+			fmt.Fprintf(e.out, "%s is not in %s yet. Add it with: %s\n", strings.Join(added, ", "), config.FileName, e.st.accent.Render("/config"))
+		}
+	}()
 	if len(jobs) == 0 {
 		if update {
 			fmt.Fprintln(e.out, "\nNothing to update.")
@@ -209,4 +234,12 @@ func harnessCount(n int) string {
 		return "1 harness"
 	}
 	return fmt.Sprintf("%d harnesses", n)
+}
+
+// orNone joins names for a message, or says there are none.
+func orNone(names []string) string {
+	if len(names) == 0 {
+		return "none besides those"
+	}
+	return strings.Join(names, ", ")
 }

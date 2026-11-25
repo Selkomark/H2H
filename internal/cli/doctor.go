@@ -245,6 +245,29 @@ func (d *diagnosis) harnesses(ctx context.Context, cfg config.Config) {
 		}
 		d.ok(label, detail+", logged in and answering")
 	}
+	d.supported(cfg)
+}
+
+// supported lists the harnesses this H2H supports that the config does not
+// have. They are no problem, so they neither warn nor fail: the list tells
+// the user of a config written for an earlier H2H what they can add.
+func (d *diagnosis) supported(cfg config.Config) {
+	e := d.e
+	extra := cfg.Unconfigured()
+	if len(extra) == 0 {
+		return
+	}
+	d.section("Also supported")
+	shipped := config.Shipped()
+	for _, name := range extra {
+		// Two short lines, so neither wraps in a narrow console.
+		detail, next := "not installed", "install it with "+e.st.accent.Render("install "+name)+", then add it with "+e.st.accent.Render("/config")
+		if _, err := exec.LookPath(shipped.Harnesses[name].Command); err == nil {
+			detail, next = "installed", "add it with "+e.st.accent.Render("/config")
+		}
+		d.line(e.st.dim.Render("-"), name, detail+", not in "+config.FileName)
+		fmt.Fprintf(e.out, "    %-18s %s\n", "", e.st.dim.Render("To use it: ")+next)
+	}
 }
 
 // permission reads, for every installed harness, whether the user has
@@ -262,6 +285,10 @@ func (d *diagnosis) permission(cfg config.Config) {
 		h := cfg.Harnesses[name]
 		if _, err := exec.LookPath(h.Command); err != nil {
 			continue // reported under Harnesses
+		}
+		if h.NoTrustQuestion {
+			d.ok(name, "asks no trust question, so a session starts without one")
+			continue
 		}
 		if !h.ChecksTrust() {
 			d.warn(name, "not checked: the harness has no trust_file in the config", "")

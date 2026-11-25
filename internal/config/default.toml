@@ -49,6 +49,10 @@ default_harness = "claude"
 #             the record, and trust_value is what the record holds, or one
 #             entry of it if it is a list, when the folder is trusted.
 #             {project} is the project's path. H2H only reads this file
+#   no_trust_question
+#             true for a harness that starts in any folder without asking
+#             whether you trust it. There is then nothing for "/doctor" to
+#             check, and no trust settings are needed
 #   pass_env  extra environment variables the harness may see. A harness
 #             otherwise gets only a basic environment (HOME, PATH, TERM,
 #             locale, proxy settings), never your whole shell environment.
@@ -58,7 +62,7 @@ default_harness = "claude"
 #             (NAME=value entries), {roles_dir} becomes a directory holding
 #             the roles as AGENTS.md, for harnesses that read instructions
 #             only from files. Each harness below uses the option it has
-#             for standing instructions, so all three get the same role.
+#             for standing instructions, so all of them get the same role.
 
 [harness.claude]
 command = "claude"
@@ -109,6 +113,21 @@ trust_file = "~/.codex/config.toml"
 trust_key = ["projects", "{project}", "trust_level"]
 trust_value = "trusted"
 pass_env = ["OPENAI_API_KEY"]
+
+[harness.opencode]
+command = "opencode"
+args = ["--standalone"]
+ask_args = ["run", "--standalone", "--agent", "plan"]
+context_env = ['OPENCODE_CONFIG_CONTENT={"instructions":["{roles_dir}/AGENTS.md"]}']
+stream_args = ["run", "--standalone", "--agent", "plan", "--format", "json"]
+stream_text = "part.text"
+stream_when = "type=text"
+stream_whole = true
+version_args = ["--version"]
+install_command = ["npm", "install", "-g", "@opencode/cli@latest"]
+latest_command = ["npm", "view", "@opencode/cli", "version"]
+no_trust_question = true
+pass_env = ["OPENCODE_API_KEY"]
 
 # What a harness may do without stopping to ask you. A harness with
 # permit_args asks H2H first, and H2H answers from these rules:

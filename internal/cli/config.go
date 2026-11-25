@@ -178,7 +178,7 @@ func (e *env) configGuide(ctx context.Context) error {
 			e.st.dim.Render(": you are shown the changes and a map of the result, and nothing is written before you apply it.")
 	})
 
-	base := guidePrompt(current, exists, loadErr, e.installedHarnesses(cfg))
+	base := guidePrompt(current, exists, loadErr, e.installedHarnesses(cfg), supportedHarnesses(cfg))
 	var turns []string
 	invalid := 0
 	for {
@@ -277,10 +277,33 @@ func (e *env) installedHarnesses(cfg config.Config) string {
 	return strings.Join(lines, "\n")
 }
 
+// supportedHarnesses tells the harness which harnesses this H2H supports
+// that the config does not have, each with the entry to add for it. A
+// config written for an earlier H2H cannot say this itself.
+func supportedHarnesses(cfg config.Config) string {
+	extra := cfg.Unconfigured()
+	if len(extra) == 0 {
+		return ""
+	}
+	shipped := config.Shipped()
+	text := "This version of H2H also supports the harnesses below, which the config does not have. " +
+		"Tell the user about them when they ask what they can use, or when one would suit a domain. " +
+		"To add one, copy its entry into the config exactly as it is here, with the other harnesses. " +
+		"One that is not installed is installed by the user with \"/install <name>\" in H2H; say so when you add it.\n"
+	for _, name := range extra {
+		state := "installed"
+		if _, err := exec.LookPath(shipped.Harnesses[name].Command); err != nil {
+			state = "not installed"
+		}
+		text += "\n" + name + " (" + state + "):\n" + config.ShippedEntry(name) + "\n"
+	}
+	return text + "\n"
+}
+
 // guidePrompt is what the harness is told before the conversation starts:
 // what H2H is for, the config as it stands, its schema, and how to hold
 // the conversation.
-func guidePrompt(current string, exists bool, broken error, installed string) string {
+func guidePrompt(current string, exists bool, broken error, installed, supported string) string {
 	state := "The project has no config file yet. This is the one H2H ships with, which is in force until one is written:"
 	switch {
 	case broken != nil:
@@ -298,7 +321,7 @@ func guidePrompt(current string, exists bool, broken error, installed string) st
 		state + "\n\n" + current + "\n\n" +
 		"The comments in that file are the schema: they explain every setting H2H accepts. Settings not described there are rejected. " +
 		"Keep the comments, and keep the settings of the harnesses that H2H ships with unless the user asks to change them.\n\n" +
-		"Which of the configured harnesses are installed on this machine:\n" + installed + "\n\n" +
+		"Which of the configured harnesses are installed on this machine:\n" + installed + "\n\n" + supported +
 		"How to hold the conversation:\n" +
 		"- You see the whole conversation so far each time, and reply with your next message only.\n" +
 		"- The user has just been shown the setup as it stands, as a map and a table, and how to reply. " +

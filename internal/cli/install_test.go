@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Selkomark/H2H/internal/config"
 	"github.com/Selkomark/H2H/internal/console"
 )
 
@@ -249,3 +250,56 @@ func TestPickByNumber(t *testing.T) {
 func (u *scriptedUI) Clear() { u.cleared = true }
 
 func (u *scriptedUI) Show(draw func(width int) string) { u.shown = append(u.shown, draw(100)) }
+
+func TestInstallKnowsHarnessesTheConfigLacks(t *testing.T) {
+	conf := func(bin string) string { return "default_harness = \"alpha\"\n" + fakeTool(bin, "alpha", "2.0.0") }
+	// Only the stand-in directory and the system's own are on PATH, so no
+	// real harness or installer is found and nothing real can be installed.
+	e, ui, bin, output := installEnv(t, conf, takeNone)
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+"/bin:/usr/bin")
+	installOld(t, bin, "alpha")
+
+	// Listing everything names what H2H supports beyond the config.
+	if err := e.install(context.Background(), nil); err != nil {
+		t.Fatal(err)
+	}
+	if out := output(); !strings.Contains(out, "opencode   - supported, not in h2h.toml; not installed; install it with: install opencode") {
+		t.Errorf("the supported harnesses are not listed:\n%s", out)
+	}
+	// Naming one uses the entry H2H ships for it, and is not refused.
+	err := e.install(context.Background(), []string{"opencode"})
+	if out := output(); err != nil || !strings.Contains(out, "is installed with npm, which is not installed or not on PATH") || !strings.Contains(out, "opencode is not in h2h.toml yet. Add it with: /config") {
+		t.Errorf("install opencode = %v:\n%s", err, out)
+	}
+	if len(ui.labels) != 0 {
+		t.Errorf("something was offered although its installer is missing: %q", ui.labels)
+	}
+	// A name H2H does not know is refused, and says what it does support.
+	if err := e.install(context.Background(), []string{"nothing"}); err == nil || !strings.Contains(err.Error(), "H2H also supports: claude, codex, copilot, opencode") {
+		t.Errorf("install nothing = %v", err)
+	}
+}
+
+func TestDoctorAndGuideNameSupportedHarnesses(t *testing.T) {
+	t.Setenv("PATH", "/bin:/usr/bin")
+	e, out := doctorEnv(t, "default_harness = \"mine\"\n[harness.mine]\ncommand = \"sh\"\n")
+	_ = e.doctor(context.Background(), nil)
+	for _, want := range []string{"Also supported", "- opencode", "not installed, not in h2h.toml", "To use it: install it with install opencode, then add it with /config"} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("doctor lacks %q:\n%s", want, out)
+		}
+	}
+	cfg, err := config.Load(e.root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := guidePrompt("x", true, nil, "- mine: installed", supportedHarnesses(cfg))
+	for _, want := range []string{"also supports the harnesses below", "opencode (not installed):\n[harness.opencode]\ncommand = \"opencode\"", `install_command = ["npm", "install", "-g", "@opencode/cli@latest"]`, "/install <name>"} {
+		if !strings.Contains(p, want) {
+			t.Errorf("the guide's prompt lacks %q", want)
+		}
+	}
+	if got := supportedHarnesses(config.Shipped()); got != "" {
+		t.Errorf("a config with every harness is told of more: %q", got)
+	}
+}

@@ -387,6 +387,11 @@ func (e *env) argumentSuggestions(command string) []console.Suggestion {
 			for _, name := range cfg.Names() {
 				out = append(out, console.Suggestion{Text: name, Help: strings.Join(cfg.Harnesses[name].InstallCommand, " ")})
 			}
+			// And the ones H2H supports that the config does not have yet.
+			shipped := config.Shipped()
+			for _, name := range cfg.Unconfigured() {
+				out = append(out, console.Suggestion{Text: name, Help: strings.Join(shipped.Harnesses[name].InstallCommand, " ") + "  (not in " + config.FileName + " yet)"})
+			}
 		}
 	case "config":
 		out = []console.Suggestion{

@@ -133,7 +133,7 @@ func TestConfigGuideNeedsAHarnessThatCanAnswer(t *testing.T) {
 }
 
 func TestGuidePromptCarriesTheSchemaAndTheState(t *testing.T) {
-	p := guidePrompt(config.Template(), false, nil, "- claude: installed")
+	p := guidePrompt(config.Template(), false, nil, "- claude: installed", "")
 	for _, want := range []string{"no config file yet", "context_args", "depends_on", configMarker, "- claude: installed", "type /done", "do not guess what it agrees to", "Do not summarise the setup in words"} {
 		if !strings.Contains(p, want) {
 			t.Errorf("the prompt lacks %q", want)
