@@ -7,7 +7,9 @@ import (
 	"time"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/muesli/termenv"
 
+	"github.com/Selkomark/H2H/internal/console"
 	"github.com/Selkomark/H2H/internal/session"
 )
 
@@ -56,9 +58,6 @@ var (
 const (
 	// barSweep is how long the light takes to cross the bar.
 	barSweep = 3 * time.Second
-	// barCells is how many cells share one colour. Fewer colour changes
-	// keep each redraw of the bar small.
-	barCells = 3
 	// barGlowWidth is the spread of the light, as a share of the bar.
 	barGlowWidth = 0.07
 )
@@ -127,6 +126,24 @@ func (st styles) gradient(text string) string {
 	return out.String()
 }
 
+// glow is the light of the console's frame while a command runs, or
+// nil where there is no colour to show it with.
+func (st styles) glow() *console.Glow {
+	if !st.vivid || lipgloss.ColorProfile() == termenv.Ascii {
+		return nil
+	}
+	// Pink, violet, blue, cyan and a warm orange.
+	g := &console.Glow{
+		Colors: []string{"#FF3D9A", "#A855F7", "#4C7DFF", "#22D3EE", "#FF8A5B"},
+		Light:  "#FFFFFF", Back: "#1C1C1C",
+	}
+	if !lipgloss.HasDarkBackground() {
+		g.Colors = []string{"#D6246E", "#7E22CE", "#2563EB", "#0891B2", "#EA580C"}
+		g.Light, g.Back = "#F0ABFC", "#FFFFFF"
+	}
+	return g
+}
+
 // barColor is the colour of the bar at a position along it, from 0 at the
 // left to 1 at the right, at a moment of its sweep, from 0 to 1. The light
 // starts and ends off the bar, so it enters and leaves smoothly.
@@ -148,10 +165,16 @@ func (st styles) bar(text string, width int, since time.Duration) string {
 	cells = cells[:max(0, width)]
 	sweep := float64(since%barSweep) / float64(barSweep)
 	var out strings.Builder
-	for at := 0; at < len(cells); at += barCells {
-		end := min(at+barCells, len(cells))
-		c := barColor(float64(at)/float64(max(1, width-1)), sweep)
+	colorAt := func(at int) rgb { return barColor(float64(at)/float64(max(1, width-1)), sweep) }
+	// Each cell has its own colour, so the light moves smoothly. Neighbours
+	// that come out the same share one colour change.
+	for at := 0; at < len(cells); {
+		c, end := colorAt(at), at+1
+		for end < len(cells) && colorAt(end) == c {
+			end++
+		}
 		out.WriteString(lipgloss.NewStyle().Bold(true).Foreground(barInk).Background(c.color()).Render(string(cells[at:end])))
+		at = end
 	}
 	return out.String()
 }

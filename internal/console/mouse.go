@@ -17,8 +17,8 @@ import (
 // corner: the frame and its padding come first on every row.
 const (
 	contentX   = 2 // the first column inside the frame
-	tabRowY    = 2 // the row of tabs, under the top border and the title
-	middleY    = 4 // the first row of the middle section
+	tabRowY    = 1 // the header, with the tabs, under the top border
+	middleY    = 3 // the first row of the middle section
 	wheelLines = 3 // rows the transcript moves for one notch of the wheel
 	hintSep    = " · "
 
@@ -256,7 +256,7 @@ func (m *model) cellAt(x, y int) cell {
 // tabAt returns the tab drawn at a column of the tab row.
 func (m *model) tabAt(x int) (int, bool) {
 	at := 0
-	for n, name := range m.tabNames() {
+	for n, name := range m.tabLabels() {
 		if w := lipgloss.Width(name) + 2*tabPad; x >= at && x < at+w {
 			return n, true
 		} else {

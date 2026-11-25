@@ -306,12 +306,18 @@ func Run(args []string) int {
 	return 0
 }
 
+// tildePath writes the home directory at the start of a path as ~.
+func tildePath(path, home string) string {
+	if home != "" && (path == home || strings.HasPrefix(path, home+"/")) {
+		return "~" + strings.TrimPrefix(path, home)
+	}
+	return path
+}
+
 // displayPath shortens a path for display: the home directory becomes ~,
 // and a path longer than limit keeps its end, which names the project.
 func displayPath(path, home string, limit int) string {
-	if home != "" && (path == home || strings.HasPrefix(path, home+"/")) {
-		path = "~" + strings.TrimPrefix(path, home)
-	}
+	path = tildePath(path, home)
 	if r := []rune(path); len(r) > limit {
 		path = "..." + string(r[len(r)-limit+3:])
 	}
@@ -320,7 +326,7 @@ func displayPath(path, home string, limit int) string {
 
 // theme is the look the console and its dialogs share.
 func (e *env) theme() console.Theme {
-	return console.Theme{Accent: e.st.accent, Dim: e.st.dim, Frame: frameColor, Hover: hoverColor}
+	return console.Theme{Accent: e.st.accent, Dim: e.st.dim, Warn: e.st.warn, Frame: frameColor, Hover: hoverColor, Glow: e.st.glow()}
 }
 
 // fail reports an error to the user.
@@ -383,16 +389,15 @@ func (e *env) console(resume bool, resumeID string) error {
 	suggestions = append(suggestions, console.Suggestion{Text: "/exit", Help: "Leave the console; harnesses keep running, and the session is saved"})
 
 	err := console.Run(console.Options{
-		In:    e.in,
-		Out:   e.tty,
-		Theme: e.theme(),
-		Title: e.st.gradient("H2H") + " " + e.st.dim.Render(Version+"  ·  ") + displayPath(e.root, os.Getenv("HOME"), 40) +
-			e.st.dim.Render("  ·  default harness ") + harnessName,
+		In:       e.in,
+		Out:      e.tty,
+		Theme:    e.theme(),
+		Title:    e.st.gradient("H2H") + " " + e.st.dim.Render(Version),
+		Path:     tildePath(e.root, os.Getenv("HOME")),
 		Intro:    intro,
 		Restore:  restore,
 		Save:     e.here.save,
 		Requests: e.pendingPermit,
-		Status:   e.statusLine,
 		Heed:     e.heed,
 		Views: []console.View{{
 			Name:    "Map",

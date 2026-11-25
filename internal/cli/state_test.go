@@ -102,8 +102,8 @@ func TestConsoleTellsOfAWaitOnceAndShowsItEverywhere(t *testing.T) {
 	}
 
 	// Everywhere a state is shown.
-	if got := e.statusLine(); !strings.Contains(got, id+" waiting for you") {
-		t.Errorf("status line = %q", got)
+	if tab := e.sessionsView(); tab.Count != "1/1" || !tab.Attention {
+		t.Errorf("Harnesses tab counts %q, attention %v; want 1/1 asking for the user", tab.Count, tab.Attention)
 	}
 	_ = e.ps(context.Background(), nil)
 	if !strings.Contains(out.String(), "waiting for you") {
@@ -122,6 +122,9 @@ func TestConsoleTellsOfAWaitOnceAndShowsItEverywhere(t *testing.T) {
 	_ = session.ClearWait(root, id)
 	if notices, alert := e.heed(); len(notices) != 0 || alert != "" {
 		t.Errorf("after go: %q, %q; want nothing", notices, alert)
+	}
+	if tab := e.sessionsView(); tab.Count != "1/1" || tab.Attention {
+		t.Errorf("after go, the Harnesses tab counts %q, attention %v; want 1/1 and none", tab.Count, tab.Attention)
 	}
 	if err := session.SetWait(root, id, ""); err != nil {
 		t.Fatal(err)

@@ -30,9 +30,14 @@ const resetTerminal = "\x1b[r\x1b[?1049l\x1b[?25h\x1b[?1000l\x1b[?1002l\x1b[?100
 // sequence the harness is in the middle of sending.
 const barDelay = 80 * time.Millisecond
 
-// barTick is how often the bar is drawn again while the session is quiet.
-// The bar's text can change with time, which is how it moves.
-const barTick = 150 * time.Millisecond
+// barTick is how often the bar is looked at again while the session is
+// quiet. The bar's text can change with time, which is how it moves, and
+// this is its frame rate: about thirty a second.
+const barTick = 33 * time.Millisecond
+
+// barRefresh is how often a bar that has not changed is drawn anyway, in
+// case it was cleared from the screen.
+const barRefresh = 150 * time.Millisecond
 
 // Attach connects the user's terminal to a session until the user presses
 // DetachKey or the session ends. It reports whether the session ended.
@@ -74,13 +79,22 @@ func Attach(sock string, in *os.File, out io.Writer, bar func(width int) string)
 		return err
 	}
 
-	// drawBar paints the bar on the last row without moving the cursor.
-	drawBar := func() {
+	// barFrame is what paints the bar on the last row without moving the
+	// cursor, or "" where there is no bar. The bar fills its row, so the
+	// row is not cleared first, which would flicker. A terminal that knows
+	// synchronised output (mode 2026) shows the frame all at once, and
+	// others ignore the request.
+	barFrame := func() string {
 		cols, rows, err := term.GetSize(fd)
 		if bar == nil || err != nil || rows < 3 {
-			return
+			return ""
 		}
-		write(fmt.Sprintf("\x1b7\x1b[%d;1H\x1b[0m\x1b[2K%s\x1b[0m\x1b8", rows, bar(cols)))
+		return fmt.Sprintf("\x1b[?2026h\x1b7\x1b[%d;1H\x1b[0m%s\x1b[0m\x1b8\x1b[?2026l", rows, bar(cols))
+	}
+	drawBar := func() {
+		if frame := barFrame(); frame != "" {
+			write(frame)
+		}
 	}
 	// resize gives the harness the rows above the bar, and keeps its
 	// scrolling out of the bar's row.
@@ -120,14 +134,25 @@ func Attach(sock string, in *os.File, out io.Writer, bar func(width int) string)
 		defer close(barStopped)
 		tick := time.NewTicker(barTick)
 		defer tick.Stop()
+		var shown string // the last frame drawn from here
+		var shownAt time.Time
 		for {
 			select {
 			case <-stopBar:
 				return
 			case <-tick.C:
-				if time.Since(time.Unix(0, lastOutput.Load())) >= barDelay {
-					drawBar()
+				output := time.Unix(0, lastOutput.Load())
+				if time.Since(output) < barDelay {
+					continue
 				}
+				frame := barFrame()
+				// A frame the screen already has is not sent again,
+				// unless output since then may have covered it.
+				if frame == "" || (frame == shown && output.Before(shownAt) && time.Since(shownAt) < barRefresh) {
+					continue
+				}
+				write(frame)
+				shown, shownAt = frame, time.Now()
 			}
 		}
 	}()

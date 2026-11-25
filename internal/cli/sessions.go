@@ -491,7 +491,9 @@ func plural(n int, noun string) string {
 	return fmt.Sprintf("%d %ss", n, noun)
 }
 
-// sessionsView is the content of the console's Sessions tab.
+// sessionsView is the content of the console's Harnesses tab. Its tab
+// counts the harnesses running out of those listed, and counts nothing
+// when none is listed.
 func (e *env) sessionsView() console.Table {
 	infos, err := session.List(e.root)
 	if err != nil {
@@ -502,26 +504,19 @@ func (e *env) sessionsView() console.Table {
 		Header: lines[0],
 		Empty:  e.st.dim.Render("No harnesses running. Start one with ") + e.st.accent.Render("/start [harness]"),
 	}
+	running := 0
 	for n, i := range infos {
 		t.Rows = append(t.Rows, console.Row{ID: i.ID, Text: lines[n+1]})
+		if i.State == session.Running {
+			running++
+			// Loading a session sets its attention only while it runs.
+			t.Attention = t.Attention || i.Attention.Kind != session.NoAttention
+		}
+	}
+	if len(infos) > 0 {
+		t.Count = fmt.Sprintf("%d/%d", running, len(infos))
 	}
 	return t
-}
-
-// statusLine summarises the sessions in one line, for the top of the console.
-func (e *env) statusLine() string {
-	infos, err := session.List(e.root)
-	if err != nil {
-		return e.st.bad.Render(err.Error())
-	}
-	if len(infos) == 0 {
-		return e.st.dim.Render("no harnesses running")
-	}
-	parts := make([]string, len(infos))
-	for n, i := range infos {
-		parts[n] = e.st.state(i).Render("● ") + i.ID + " " + e.st.dim.Render(stateText(i))
-	}
-	return strings.Join(parts, "   ")
 }
 
 // argumentSuggestions offers what can follow a command in the console.

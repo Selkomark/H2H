@@ -50,7 +50,7 @@ Direct dependencies, checked by hand on 2026-11-23 from the licence file in each
 | `github.com/charmbracelet/x/ansi` | v0.11.6 | MIT | Cutting styled text by column, to mark and copy a selection in the console |
 | `github.com/atotto/clipboard` | v0.1.4 | BSD 3-Clause | Copying selected text to the system clipboard |
 | `github.com/aymanbagabas/go-osc52/v2` | v2.0.1 | MIT | Copying through the terminal where the system has no clipboard program, as over SSH |
-| `github.com/muesli/termenv` | v0.16.0 | MIT | Tests only: switching colour on to test the console's hover background |
+| `github.com/muesli/termenv` | v0.16.0 | MIT | Telling whether the terminal has colour, for the glow of the console's frame; and tests that switch colour on |
 
 The last four were added on 2026-11-24. They were already in the binary as dependencies of the libraries above, and are now used directly.
 

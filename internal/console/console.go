@@ -51,8 +51,10 @@ type UI interface {
 type Theme struct {
 	Accent lipgloss.Style         // the prompt, selected entries, typed lines
 	Dim    lipgloss.Style         // hints and secondary text
+	Warn   lipgloss.Style         // what needs the user, such as a tab's count
 	Frame  lipgloss.TerminalColor // the frame around the page and the rules inside it
 	Hover  lipgloss.TerminalColor // the background of the message under the mouse; nil for none
+	Glow   *Glow                  // lights the page's frame while a command runs; nil for a spinner
 }
 
 // View is a live list with its own tab, beside the transcript. The user
@@ -75,6 +77,12 @@ type Table struct {
 	Rows   []Row
 	// Empty is shown in place of the rows when there are none.
 	Empty string
+	// Count, if set, is shown in brackets after the view's name on its
+	// tab, such as "3/4". It is plain text: the console styles it.
+	Count string
+	// Attention says something counted needs the user, so the count is
+	// shown in the warning colour.
+	Attention bool
 	// Graph, if set, makes the view a drawing of boxes and arrows instead
 	// of rows. The user moves between the boxes and inspects one.
 	Graph *Graph
@@ -124,8 +132,12 @@ type Options struct {
 	In    *os.File
 	Out   *os.File
 	Theme Theme
-	// Title is shown at the top of the screen.
+	// Title is shown in the middle of the header, beside the tabs.
 	Title string
+	// Path is the directory the console works in, shown at the right of
+	// the header. It is given whole, as plain text: the console shortens
+	// it to the room there is.
+	Path string
 	// Intro is the first text in the transcript, or with Restore, the text
 	// added after what was restored.
 	Intro string
@@ -137,11 +149,8 @@ type Options struct {
 	// Requests, if set, returns a question waiting for the user, or nil.
 	// It is called every few seconds.
 	Requests func() *Request
-	// Status returns the line under the title. It is called every few
-	// seconds, so it can show live state.
-	Status func() string
-	// Heed, if set, is called with Status. It returns lines to add to the
-	// transcript, each about something the user must know at once, such
+	// Heed, if set, is called when the views are refreshed. It returns
+	// lines to add to the transcript, each about something the user must know at once, such
 	// as a harness that stopped to wait for them, and a short line to show
 	// in place of "working" while a command runs, or "".
 	Heed func() (notices []string, alert string)

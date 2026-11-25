@@ -25,10 +25,10 @@ const (
 	promptText    = "> "
 	transcriptTab = "Console"
 
-	// Rows the page spends outside the middle section: the top border, the
-	// title and the tabs; the rule above the middle; the rule above the
-	// input, the input and the bottom border; and the hint under the page.
-	chromeHeight = 3 + 1 + 3 + 1
+	// Rows the page spends outside the middle section: the top border and
+	// the header; the rule above the middle; the rule above the input, the
+	// input and the bottom border; and the hint under the page.
+	chromeHeight = 2 + 1 + 3 + 1
 	// Columns the frame and its padding take on each line.
 	chromeWidth = 4
 
@@ -60,7 +60,6 @@ type (
 		from int
 	}
 	statusMsg struct {
-		status  string
 		views   []Table
 		request *Request // a question waiting for the user, if any
 		notices []string // lines for the transcript, from Heed
@@ -105,6 +104,8 @@ type model struct {
 	input textarea.Model
 	view  viewport.Model
 	spin  spinner.Model
+	// glowFor is how long the glow of the frame has been running.
+	glowFor time.Duration
 
 	width, height int
 	transcript    string
@@ -117,15 +118,14 @@ type model struct {
 	unseen        int                // lines printed below the view since the user scrolled away from the end
 	flash         string             // a short note in the hint line, until the next key
 	copy          func(string) error // puts text on the clipboard
-	status        string
-	alert         string          // shown in place of "working", from Heed
-	tab           int             // 0 is the transcript, n is Views[n-1]
-	views         []Table         // the last content of each view
-	selectedID    []string        // the selected row of each view
-	notice        string          // what the last action on a view printed
-	noticeOf      int             // the number of the command whose output becomes the notice, or 0
-	noticing      strings.Builder // what that command has printed so far
-	commands      int             // how many commands have been started; the last one's number
+	alert         string             // shown in place of "working", from Heed
+	tab           int                // 0 is the transcript, n is Views[n-1]
+	views         []Table            // the last content of each view
+	selectedID    []string           // the selected row of each view
+	notice        string             // what the last action on a view printed
+	noticeOf      int                // the number of the command whose output becomes the notice, or 0
+	noticing      strings.Builder    // what that command has printed so far
+	commands      int                // how many commands have been started; the last one's number
 
 	offers      []Suggestion
 	forArgument bool
@@ -157,9 +157,7 @@ type model struct {
 func newModel(o Options, ui UI) *model {
 	in := newInput(o.Theme, "Type / for commands, or ask a question")
 
-	sp := spinner.New()
-	sp.Spinner = spinner.MiniDot
-	sp.Style = o.Theme.Accent
+	sp := newSpinner(o.Theme)
 
 	m := &model{o: o, ui: ui, input: in, view: viewport.New(0, 0), spin: sp, transcript: o.Intro}
 	m.copy = systemClipboard(o.Out)
@@ -225,9 +223,6 @@ func (m *model) out() io.Writer {
 // the disk, so it runs off the interface's own loop where it can.
 func (m *model) snapshot() statusMsg {
 	var s statusMsg
-	if m.o.Status != nil {
-		s.status = m.o.Status()
-	}
 	for _, v := range m.o.Views {
 		s.views = append(s.views, v.Table())
 	}
@@ -241,7 +236,7 @@ func (m *model) snapshot() statusMsg {
 }
 
 func (m *model) apply(s statusMsg) {
-	m.status, m.views, m.alert = s.status, s.views, s.alert
+	m.views, m.alert = s.views, s.alert
 	for _, n := range s.notices {
 		// A message of its own, even in the middle of an answer.
 		m.begin(0)
@@ -454,6 +449,7 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		var cmd tea.Cmd
 		m.spin, cmd = m.spin.Update(msg)
+		m.glowFor += m.spin.Spinner.FPS
 		return m, cmd
 
 	case tea.KeyMsg:
@@ -739,6 +735,9 @@ func (m *model) submit(line string) tea.Cmd {
 	run := func() tea.Msg {
 		defer cancel()
 		return doneMsg{quit: m.o.Handle(ctx, ui, line), from: number}
+	}
+	if !already {
+		m.glowFor = 0 // the glow fades in afresh
 	}
 	if already {
 		return run // the spinner is already turning
@@ -1062,12 +1061,17 @@ func (m *model) activityRows(width int) []string {
 	}
 	th := m.o.Theme
 	var rows []string
-	if m.busy {
-		row := m.spin.View() + " " + th.Dim.Render("working")
+	switch {
+	case !m.busy:
+	case th.Glow != nil:
+		// The glow says it is working; only a warning needs a row.
 		if m.alert != "" {
-			row = m.spin.View() + " " + m.alert
+			rows = append(rows, clip(m.alert, width))
 		}
-		rows = append(rows, clip(row, width))
+	case m.alert != "":
+		rows = append(rows, clip(m.spin.View()+" "+m.alert, width))
+	default:
+		rows = append(rows, clip(m.spin.View()+" "+th.Dim.Render("working"), width))
 	}
 	for n, q := range m.queued {
 		if n == maxQueuedRows-1 && len(m.queued) > maxQueuedRows {
@@ -1141,7 +1145,7 @@ func (m *model) View() string {
 	section := lipgloss.NewStyle().BorderForeground(th.Frame).Padding(0, 1).Width(m.width - 2)
 
 	header := section.Border(topFrame, true, true, false, true).
-		Render(clip(m.o.Title, inner) + "\n" + m.tabRow(inner))
+		Render(m.headerRow(inner))
 
 	shown := m.shown()
 	rows := m.suggestionRows(shown, inner)
@@ -1219,8 +1223,14 @@ func (m *model) View() string {
 		line = clip(line, inner)
 	}
 	input := section.Border(endFrame).Render(line)
+	page := strings.Join([]string{header, body, input}, "\n")
+	under := th.Dim.Render(clip(" "+hint, m.width)) // the hint under the page
+	if m.glowing() {
+		side := lipgloss.NewStyle().Foreground(th.Frame).Render("│")
+		return strings.Join(th.Glow.glowFrameOf(strings.Split(page, "\n"), m.width, side, under, m.glowFor), "\n")
+	}
 
-	return strings.Join([]string{header, body, input, th.Dim.Render(clip(" "+hint, m.width))}, "\n")
+	return page + "\n" + under
 }
 
 // graphOrigin is where a graph view's drawing starts inside the middle
@@ -1305,35 +1315,6 @@ func (m *model) viewHint() string {
 		parts = append(parts, a.Key+" "+a.Label)
 	}
 	return strings.Join(append(parts, "/ command", "shift+tab switch view"), hintSep)
-}
-
-// tabRow shows the tabs on the left and the status on the right.
-func (m *model) tabRow(width int) string {
-	th := m.o.Theme
-	names := m.tabNames()
-	// The tab on screen is a filled label; the others are padded to the
-	// same width, so switching never shifts the row.
-	for n, name := range names {
-		if n == m.tab {
-			names[n] = th.Accent.Reverse(true).Bold(true).Padding(0, tabPad).Render(name)
-		} else {
-			names[n] = th.Dim.Padding(0, tabPad).Render(name)
-		}
-	}
-	tabs := strings.Join(names, tabSep)
-	if gap := width - lipgloss.Width(tabs) - lipgloss.Width(m.status); gap >= 3 {
-		return tabs + strings.Repeat(" ", gap) + m.status
-	}
-	return clip(tabs, width)
-}
-
-// tabNames are the labels of the tabs, left to right.
-func (m *model) tabNames() []string {
-	names := []string{transcriptTab}
-	for _, v := range m.o.Views {
-		names = append(names, v.Name)
-	}
-	return names
 }
 
 // suggestionOffset is the index of the first suggestion on screen.

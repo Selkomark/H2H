@@ -203,7 +203,7 @@ A harness that stops to ask the user something, above all whether it may do a th
 | waiting for you | The harness's own hooks run the session's `h2h-state` program: `h2h-state wait` when it stops for the user, and `h2h-state go` when it carries on | Yes |
 | may be waiting for you | A request from H2H (`/ask`) is open, and the terminal has produced no bytes for 20 seconds. A harness at work keeps drawing, even while a slow command runs ([findings.md](findings.md), spike 01), so a silence that long almost always means it waits | No, and it is labelled so |
 
-Where it shows: the session's state, in amber, in the status line, the Harnesses tab, the Map, `h2h ps` and the harness list the default harness is given; a line in the Console transcript, once per wait, saying what the harness waits for and to answer it with `/attach <id>`; in place of "working" while a command runs; and, for `h2h ask` run from the shell, a line under the request. `/ask` refuses to type a request into a harness that waits, because the text would land in its prompt. There is no bell.
+Where it shows: the session's state, in amber, on the Harnesses tab's count in the console's header, in the Harnesses tab, the Map, `h2h ps` and the harness list the default harness is given; a line in the Console transcript, once per wait, saying what the harness waits for and to answer it with `/attach <id>`; in place of "working" while a command runs; and, for `h2h ask` run from the shell, a line under the request. `/ask` refuses to type a request into a harness that waits, because the text would land in its prompt. There is no bell.
 
 The hooks are declared per harness in the config, as `state_args`, `state_env` and `state_files` (see [configuration.md](configuration.md)), and never written into the workspace or into a harness's own settings. `state_files` go in a folder of the session's own in the state directory, `.h2h/sessions/<id>/state/`. The wait record sits beside the session's socket, where a hook may write even when the harness confines what it runs.
 
@@ -283,7 +283,7 @@ What this does not cover:
 
 H2H is a command-line tool first. The web UI is the same tool started with a flag.
 
-Run with no arguments, `h2h` opens its console. It takes the whole screen as one framed page: a header with tabs and the session states, a middle section, and an input at the bottom with history and a suggestion list. The Console tab is a scrolling transcript. A command that takes long, such as the default harness answering or the assistant waiting for a harness to report, holds up nothing else. See [Typing while a command runs](#typing-while-a-command-runs). The one thing that cannot be done to a harness while the user is attached to it is typing a request into it, since a session has one driver at a time.
+Run with no arguments, `h2h` opens its console. It takes the whole screen as one framed page: a one-row [header](#header), a middle section, and an input at the bottom with history and a suggestion list. The Console tab is a scrolling transcript. A command that takes long, such as the default harness answering or the assistant waiting for a harness to report, holds up nothing else. See [Typing while a command runs](#typing-while-a-command-runs). The one thing that cannot be done to a harness while the user is attached to it is typing a request into it, since a session has one driver at a time.
 
 The tabs are Console, Map, Harnesses and Sessions. The Map tab draws the config as a graph; see [responsibility-map.md](responsibility-map.md). The Sessions tab lists the saved console sessions to jump into; see [Console sessions](#console-sessions). The Harnesses tab is a live table of the harnesses that were started, where the arrow keys select one and Enter attaches to it, `s` stops it and `d` deletes it, the last two after a confirmation. A question from a command is a dialog, a box at the bottom of the page. What the page was showing stays visible above it and can still be scrolled, because that is what the question is about: the changes to apply, or the work that would be lost. Only on a screen too small for both does the dialog take the middle of the page by itself. It is one of two kinds: yes or no with two buttons, where No has the focus so Enter alone agrees to nothing, or a list of options to tick. Run from the shell, the same dialog is drawn on the terminal by itself, and when the input is not a terminal the question is asked and answered as a line; `/ps` switches to it, Shift+Tab moves between tabs, and running any other command brings the transcript back. Each command is typed with a leading slash, such as `/ps`.
 
@@ -344,9 +344,24 @@ What stage 1 does not do yet:
 
 The web UI offers what the CLI does, plus the ticket board and proof viewer described in [configuration.md](configuration.md). A terminal in the browser is a remote shell with the harness's permissions; see [authentication.md](authentication.md).
 
+### Header
+
+The header is one row: the tabs on the left, `H2H` and its version in the middle, and the project's directory on the right, with the home directory written as `~`.
+
+The Harnesses tab counts the harnesses running out of those it lists, such as `Harnesses (3/4)`. A harness that is starting, has exited or is lost is listed and not counted as running. With none listed there is no count. The count is amber while any running harness is [waiting, or may be waiting, for you](#waiting-for-you). It is refreshed with the views: every two seconds, after a command, and on switching tabs. On a terminal without colour the count looks the same either way; the line in the Console transcript and the Harnesses tab still say which harness waits.
+
+The row follows the width of the terminal. When the three parts do not all fit, they give way in this order:
+
+1. The path leaves out directories from its start, such as `…/selkomark/h2h-playground`.
+2. `H2H` and its version leave the middle for the room between the tabs and the path.
+3. `H2H` and its version are left out.
+4. The name of the project's folder is cut from its start. With fewer than 12 columns for it, the path is left out, and `H2H` and its version come back if they fit.
+
+The tabs are cut only when the row cannot hold them alone.
+
 ### Typing while a command runs
 
-The input stays open while commands run. Above it, a line shows a spinner and "working", or, when a harness stops to wait for the user, what it waits for, in amber.
+The input stays open while commands run. The lines of the page's frame glow, its outline and the rules between its sections: colours flow round it, with two spots of light, the lines drawn heavier while lit, and the whole page, the row under it included, takes the same light faintly as its background, until the last command ends or a question takes the input's place. When a harness stops to wait for the user, a line above the input says what it waits for, in amber. In a terminal without colour there is no glow, and that line shows a spinner and "working" instead.
 
 - **A command**, a line with a slash, runs at once, beside whatever is running: `/attach`, `/ps`, `/stop`, `/logs`, a view's actions, and the rest. Attaching to a harness while the default harness answers gives the terminal to that harness, and the answer goes on meanwhile. What it prints waits and is on the page on return.
 - **A message** for the default harness, typed while it is still answering the last one, is queued, as in Claude Code: it is shown dimmed above the input, marked as queued. When the answer ends, the queued messages are sent together, in the order typed, as one message in the same conversation. A message typed while only commands run is sent at once.
@@ -396,6 +411,17 @@ The commands are the same functions the user runs, so a command's own safeguards
 
 This is a protocol in text and not a tool registered with the harness. It needs nothing from a harness beyond an answer to a prompt, so it works the same on every harness, in the read-only mode each one has, and H2H decides in code what may run.
 
+A plan mode is not the way to make this run read-only. In Claude Code's plan mode the model took itself to be unable to ask for commands: it answered that plan mode had to be turned off, which the user cannot do from the console, and wrote plan files instead. Claude Code is therefore given only its reading and search tools, with `--tools Read,Glob,Grep`, and no MCP servers, with `--strict-mcp-config`.
+
+| Harness | Asked to start a harness: asks H2H to run it | Asked to write a file itself: no file | Checked on |
+|---|---|---|---|
+| Claude Code | Yes | Yes. A run with these arguments also reported only `Glob`, `Grep` and `Read` as its tools, and no MCP servers | 2.1.332 |
+| Codex CLI | Yes | Yes | 0.172.0 |
+| Copilot CLI | Yes | Yes | 1.0.116 |
+| OpenCode | Not checked: its free usage limit was reached. It still runs with `--agent plan`, so it may have the same problem | Not checked | 2.4.1 |
+
+For Codex and Copilot, no file shows what the model did, not that the harness would have stopped a write.
+
 ### One conversation per console session
 
 A console session holds one conversation with the default harness, and the harness keeps it, as it keeps a conversation in its own terminal. H2H does not run the harness's interactive screen and never reads it. Each message is a non-interactive run that names the conversation by its ID, so the harness has everything said before, its own way. H2H keeps only the ID, in the saved console session.
@@ -411,17 +437,6 @@ A console session holds one conversation with the default harness, and the harne
 - **Lines piped into `h2h`** share one conversation for as long as the input lasts, and it is not saved.
 
 How each harness is told which conversation a run belongs to is in its config entry: `conversation_args` and `resume_args`, or `conversation_key` for a harness that chooses the ID itself; see [configuration.md](configuration.md). A project's entry for a shipped harness takes these settings from the shipped entry without naming them, so a config written before they existed gets them too.
-A plan mode is not the way to make this run read-only. In Claude Code's plan mode the model took itself to be unable to ask for commands: it answered that plan mode had to be turned off, which the user cannot do from the console, and wrote plan files instead. Claude Code is therefore given only its reading and search tools, with `--tools Read,Glob,Grep`, and no MCP servers, with `--strict-mcp-config`.
-
-| Harness | Asked to start a harness: asks H2H to run it | Asked to write a file itself: no file | Checked on |
-|---|---|---|---|
-| Claude Code | Yes | Yes. A run with these arguments also reported only `Glob`, `Grep` and `Read` as its tools, and no MCP servers | 2.1.332 |
-| Codex CLI | Yes | Yes | 0.172.0 |
-| Copilot CLI | Yes | Yes | 1.0.116 |
-| OpenCode | Not checked: its free usage limit was reached. It still runs with `--agent plan`, so it may have the same problem | Not checked | 2.4.1 |
-
-For Codex and Copilot, no file shows what the model did, not that the harness would have stopped a write.
-
 
 | Harness | Version checked | New conversation | Later messages | Level reached |
 |---|---|---|---|---|
@@ -587,6 +602,8 @@ Every harness is checked the same way, from its config entry. How each one print
 | `install` | Every configured harness, or those named | The ones that are not installed, and those that are there but do not run |
 | `install --update` | The installed ones | Those whose latest version is newer than the installed one, shown as `2.1.331 → 2.1.340` |
 
+A program on PATH is not proof of an install: a terminal may put a stand-in there that only passes the call on, as cmux does for `codex`. So where a harness has `version_args`, H2H runs them. If that fails, the harness does not run: `install` shows the error and offers it, marked "does not run", and `install --update` shows the error and points at `install <name>`.
+
 What it offers is shown in a dialog with every entry ticked, each with the command that will be run. The user unticks what to leave alone and confirms, or cancels. Nothing is installed before that, and nothing that is not ticked.
 
 After each install H2H checks the result instead of trusting the installer's exit status:
@@ -613,8 +630,6 @@ The installer runs with the user's own environment, not the reduced one a harnes
 A harness installed another way, such as a native installer or a package manager other than npm, needs its `install_command` and `latest_command` changed to match, or an update will install a second copy beside it. H2H reports that case when the version does not change.
 
 ## Implementation
-A program on PATH is not proof of an install: a terminal may put a stand-in there that only passes the call on, as cmux does for `codex`. So where a harness has `version_args`, H2H runs them. If that fails, the harness does not run: `install` shows the error and offers it, marked "does not run", and `install --update` shows the error and points at `install <name>`.
-
 
 **Language: Go.**
 
