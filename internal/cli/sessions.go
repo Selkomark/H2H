@@ -224,8 +224,14 @@ func (e *env) logs(ctx context.Context, args []string) error {
 	return nil
 }
 
+// everything is the word that stands for every harness in stop and rm.
+const everything = "all"
+
 func (e *env) stop(_ context.Context, args []string) error {
-	info, err := e.pick(args, "stop [id]")
+	if len(args) == 1 && args[0] == everything {
+		return e.stopAll()
+	}
+	info, err := e.pick(args, "stop [id | all]")
 	if err != nil {
 		return err
 	}
@@ -236,8 +242,107 @@ func (e *env) stop(_ context.Context, args []string) error {
 	return nil
 }
 
+// stopAll stops every running harness, after one question.
+func (e *env) stopAll() error {
+	infos, err := session.List(e.root)
+	if err != nil {
+		return err
+	}
+	var running []session.Info
+	for _, i := range infos {
+		if i.State == session.Running {
+			running = append(running, i)
+		}
+	}
+	if len(running) == 0 {
+		fmt.Fprintln(e.out, "No harness is running.")
+		return nil
+	}
+	if !e.ui.Confirm(fmt.Sprintf("Stop %s?", allOf(len(running), "running harness"))) {
+		fmt.Fprintln(e.out, "Nothing was stopped.")
+		return nil
+	}
+	var failed []error
+	for _, i := range running {
+		if err := keeper.Stop(e.root, i); err != nil {
+			failed = append(failed, fmt.Errorf("%s: %w", i.ID, err))
+			continue
+		}
+		fmt.Fprintf(e.out, "Stopped %s.\n", i.ID)
+	}
+	return errors.Join(failed...)
+}
+
+// rmAll removes every harness and its workspace, after one question that
+// says what is lost: running harnesses are stopped, and uncommitted work in
+// a workspace is discarded.
+func (e *env) rmAll(ctx context.Context) error {
+	infos, err := session.List(e.root)
+	if err != nil {
+		return err
+	}
+	if len(infos) == 0 {
+		fmt.Fprintln(e.out, "There is no harness to remove.")
+		return nil
+	}
+	running, unsaved := 0, 0
+	for _, i := range infos {
+		if i.State == session.Running {
+			running++
+		}
+		if !workspace.Exists(e.root, i.ID) {
+			continue
+		}
+		// A workspace git no longer knows cannot be checked, so it counts
+		// as holding work that would be lost.
+		if changes, err := workspace.Changes(ctx, e.root, i.ID); err != nil || len(changes) > 0 {
+			unsaved++
+		}
+	}
+	question := fmt.Sprintf("Delete %s and %s?", allOf(len(infos), "harness"), possessive(len(infos))+" "+nouns(len(infos), "workspace"))
+	if running > 0 {
+		question += fmt.Sprintf(" %s running and will be stopped.", isAre(running))
+	}
+	if unsaved > 0 {
+		question += fmt.Sprintf(" %s uncommitted changes that will be lost.", hasHave(unsaved))
+	}
+	if !e.ui.Confirm(question) {
+		fmt.Fprintln(e.out, "Nothing was removed.")
+		return nil
+	}
+	var failed []error
+	for _, i := range infos {
+		if err := e.rmOne(ctx, i); err != nil {
+			failed = append(failed, fmt.Errorf("%s was kept: %w", i.ID, err))
+			continue
+		}
+		fmt.Fprintf(e.out, "Removed %s.\n", i.ID)
+	}
+	return errors.Join(failed...)
+}
+
+// rmOne stops a harness if it runs and removes it with its workspace,
+// whatever the workspace holds. The caller has asked the user.
+func (e *env) rmOne(ctx context.Context, info session.Info) error {
+	switch info.State {
+	case session.Starting:
+		return errors.New("it is still starting")
+	case session.Running:
+		if err := keeper.Stop(e.root, info); err != nil {
+			return err
+		}
+	}
+	if err := workspace.Remove(ctx, e.root, info.ID, true); err != nil {
+		return err
+	}
+	return session.Remove(e.root, info.ID)
+}
+
 func (e *env) rm(ctx context.Context, args []string) error {
-	info, err := e.pick(args, "rm [id]")
+	if len(args) == 1 && args[0] == everything {
+		return e.rmAll(ctx)
+	}
+	info, err := e.pick(args, "rm [id | all]")
 	if err != nil {
 		return err
 	}
@@ -307,6 +412,46 @@ func changeSummary(id string, changes []string) string {
 	return b.String()
 }
 
+// allOf names a whole group by its size: "the 1 harness", "all 3 harnesses".
+func allOf(n int, noun string) string {
+	if n == 1 {
+		return "the 1 " + noun
+	}
+	return fmt.Sprintf("all %d %s", n, nouns(n, noun))
+}
+
+// nouns returns the noun in the form that fits a count.
+func nouns(n int, noun string) string {
+	switch {
+	case n == 1:
+		return noun
+	case strings.HasSuffix(noun, "s"):
+		return noun + "es"
+	}
+	return noun + "s"
+}
+
+func possessive(n int) string {
+	if n == 1 {
+		return "its"
+	}
+	return "their"
+}
+
+func isAre(n int) string {
+	if n == 1 {
+		return "1 is"
+	}
+	return fmt.Sprintf("%d are", n)
+}
+
+func hasHave(n int) string {
+	if n == 1 {
+		return "1 has"
+	}
+	return fmt.Sprintf("%d have", n)
+}
+
 // plural returns a count with its noun, such as "1 change" or "3 changes".
 func plural(n int, noun string) string {
 	if n == 1 {
@@ -361,10 +506,10 @@ func (e *env) argumentSuggestions(command string) []console.Suggestion {
 			if (command == "attach" || command == "stop") && i.State != session.Running {
 				continue
 			}
-			if command == "rm" && i.Live() {
-				continue
-			}
 			out = append(out, console.Suggestion{Text: i.ID, Help: stateText(i)})
+		}
+		if len(out) > 0 && (command == "stop" || command == "rm") {
+			out = append(out, console.Suggestion{Text: everything, Help: "Every harness, after one question"})
 		}
 	case "start":
 		cfg, err := config.Load(e.root)

@@ -277,7 +277,7 @@ Copying uses the system clipboard, and where there is none, as over SSH, asks th
 | `h2h ps` | Lists the harness sessions with their ID, harness, state, age and workspace. In the console, `/ps` opens the Harnesses tab instead. Domain and ticket come later | Built |
 | `h2h logs [-f] [id]` | Prints or follows one harness session's terminal log | Built |
 | `h2h attach [id]` | Opens the harness session's terminal. Ctrl-\ leaves it running | Built |
-| `h2h stop [id]`, `h2h rm [id]` | Stops a harness session; removes a stopped one and its workspace | Built |
+| `h2h stop [id \| all]`, `h2h rm [id \| all]` | Stops a harness session; removes one and its workspace. Removing a running one offers to stop it first. `all` acts on every harness after one question that says how many are running and how many hold uncommitted work | Built |
 | `h2h --resume [session]`, `h2h -r` | Opens the console on a saved console session; see [Console sessions](#console-sessions) | Built |
 | `h2h sessions [rm <session> \| rm all]` | Lists the saved console sessions, or removes them | Built |
 | `h2h map` | Draws the domains as boxes and the flow of work between them as arrows, with each domain's setup under the drawing. In the console, `/map` opens the Map tab instead, where a domain is selected and inspected; see [responsibility-map.md](responsibility-map.md) | Built |

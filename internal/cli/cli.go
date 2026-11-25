@@ -191,8 +191,8 @@ func commands() []command {
 		{"start", "[harness | domain]", "Start a harness; the default one if none is named", (*env).start},
 		{"attach", "[id]", "Open a running harness's terminal; leave it with Ctrl-\\", (*env).attach},
 		{"logs", "[-f] [id]", "Print a harness's terminal log; -f follows it", (*env).logs},
-		{"stop", "[id]", "Stop a running harness", (*env).stop},
-		{"rm", "[id]", "Remove a stopped harness and its workspace", (*env).rm},
+		{"stop", "[id | all]", "Stop a running harness, or all of them", (*env).stop},
+		{"rm", "[id | all]", "Remove a harness and its workspace, or all of them", (*env).rm},
 		{"map", "", "Draw the domains and the flow of work between them", (*env).mapCmd},
 		{"ask", "<id | harness | domain> <question>", "Hand a request to a running harness and wait for its report", (*env).askHarness},
 		{"sessions", "[rm <session> | rm all]", "List the saved console sessions, or remove them", (*env).sessions},
@@ -386,6 +386,9 @@ func (e *env) console(resume bool, resumeID string) error {
 				{Key: "enter", Label: "attach", Line: func(id string) string { return "/attach " + id }},
 				{Key: "s", Label: "stop", Line: func(id string) string { return "/stop " + id }, Confirm: "Stop %s?"},
 				{Key: "d", Label: "delete", Line: func(id string) string { return "/rm " + id }, Confirm: "Delete %s and its workspace?"},
+				// The commands for all of them ask for themselves, with the counts.
+				{Key: "S", Label: "stop all", Line: func(string) string { return "/stop all" }},
+				{Key: "D", Label: "delete all", Line: func(string) string { return "/rm all" }},
 			},
 		}, {
 			Name:    "Sessions",
