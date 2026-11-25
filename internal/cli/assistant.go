@@ -68,7 +68,7 @@ func (e *env) converse(ctx context.Context, text string) error {
 	t := e.currentTalk()
 	if t.ID != "" && t.Harness != name {
 		fmt.Fprintln(e.out, e.st.dim.Render("The default harness is now "+name+", so this starts a new conversation with it."))
-		t = talk{}
+		t = talk{Gen: t.Gen}
 		e.keepTalk(t)
 	}
 	var turns []string // what the harness and H2H said after the message, for a harness that does not remember
@@ -97,6 +97,7 @@ func (e *env) converse(ctx context.Context, text string) error {
 		case err != nil:
 			return err
 		}
+		next.Gen = t.Gen
 		t = next
 		e.keepTalk(t)
 

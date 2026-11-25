@@ -579,16 +579,16 @@ func TestViewsStayUsableWhileACommandRuns(t *testing.T) {
 	if !m.busy {
 		t.Error("the page stopped waiting although the first command is still running")
 	}
-	// Typing still waits for the command.
+	// The input is open while the command runs.
 	typeText(m, "x")
-	if m.input.Value() != "" {
-		t.Errorf("typed %q into the input while a command runs", m.input.Value())
+	if m.input.Value() != "x" {
+		t.Errorf("typing while a command runs: line = %q, want %q", m.input.Value(), "x")
 	}
 
 	close(release)
 	m.Update(<-finished)
-	if m.busy || m.running != 0 {
-		t.Errorf("after both finished: busy %v, running %d", m.busy, m.running)
+	if m.busy || len(m.running) != 0 {
+		t.Errorf("after both finished: busy %v, running %v", m.busy, m.running)
 	}
 }
 

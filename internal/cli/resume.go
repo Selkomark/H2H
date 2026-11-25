@@ -268,6 +268,10 @@ type openSession struct {
 	// the Sessions tab, which is redrawn every few seconds, reads a file
 	// again only after it has changed.
 	index map[string]indexed
+	// talks counts the conversations ended from outside a message, by
+	// /clear or by switching sessions. A message still being answered
+	// then keeps its conversation to itself; see setTalk.
+	talks int
 }
 
 // indexed is a saved session without its page, as a list shows it.
@@ -341,6 +345,7 @@ func (o *openSession) switchTo(s consoleSession) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	o.current, o.saved = s, true
+	o.talks++
 }
 
 // hereID is the ID of the console session a command runs in, or "" for a

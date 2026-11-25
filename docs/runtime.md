@@ -283,7 +283,7 @@ What this does not cover:
 
 H2H is a command-line tool first. The web UI is the same tool started with a flag.
 
-Run with no arguments, `h2h` opens its console. It takes the whole screen as one framed page: a header with tabs and the session states, a middle section, and an input at the bottom with history and a suggestion list. The Console tab is a scrolling transcript. A command that takes long, such as the assistant waiting for a harness to report, does not hold up the views. While it runs, the input line waits, but the Harnesses and Sessions tabs can still be opened, their rows chosen with the arrow keys or the mouse, and their actions run beside the command: attaching to a harness to watch it work, then leaving it with Ctrl-\\, brings the console back with the command still running. Ctrl-C stops every command that is running. The one thing that cannot be done to a harness while the user is attached to it is typing a request into it, since a session has one driver at a time.
+Run with no arguments, `h2h` opens its console. It takes the whole screen as one framed page: a header with tabs and the session states, a middle section, and an input at the bottom with history and a suggestion list. The Console tab is a scrolling transcript. A command that takes long, such as the default harness answering or the assistant waiting for a harness to report, holds up nothing else. See [Typing while a command runs](#typing-while-a-command-runs). The one thing that cannot be done to a harness while the user is attached to it is typing a request into it, since a session has one driver at a time.
 
 The tabs are Console, Map, Harnesses and Sessions. The Map tab draws the config as a graph; see [responsibility-map.md](responsibility-map.md). The Sessions tab lists the saved console sessions to jump into; see [Console sessions](#console-sessions). The Harnesses tab is a live table of the harnesses that were started, where the arrow keys select one and Enter attaches to it, `s` stops it and `d` deletes it, the last two after a confirmation. A question from a command is a dialog, a box at the bottom of the page. What the page was showing stays visible above it and can still be scrolled, because that is what the question is about: the changes to apply, or the work that would be lost. Only on a screen too small for both does the dialog take the middle of the page by itself. It is one of two kinds: yes or no with two buttons, where No has the focus so Enter alone agrees to nothing, or a list of options to tick. Run from the shell, the same dialog is drawn on the terminal by itself, and when the input is not a terminal the question is asked and answered as a line; `/ps` switches to it, Shift+Tab moves between tabs, and running any other command brings the transcript back. Each command is typed with a leading slash, such as `/ps`.
 
@@ -344,6 +344,18 @@ What stage 1 does not do yet:
 
 The web UI offers what the CLI does, plus the ticket board and proof viewer described in [configuration.md](configuration.md). A terminal in the browser is a remote shell with the harness's permissions; see [authentication.md](authentication.md).
 
+### Typing while a command runs
+
+The input stays open while commands run. Above it, a line shows a spinner and "working", or, when a harness stops to wait for the user, what it waits for, in amber.
+
+- **A command**, a line with a slash, runs at once, beside whatever is running: `/attach`, `/ps`, `/stop`, `/logs`, a view's actions, and the rest. Attaching to a harness while the default harness answers gives the terminal to that harness, and the answer goes on meanwhile. What it prints waits and is on the page on return.
+- **A message** for the default harness, typed while it is still answering the last one, is queued, as in Claude Code: it is shown dimmed above the input, marked as queued. When the answer ends, the queued messages are sent together, in the order typed, as one message in the same conversation. A message typed while only commands run is sent at once.
+- **Up**, on an empty input, takes the queued messages back into the input to be edited and sent again. **Esc** drops them.
+- **Ctrl-C** on an empty input stops every command that is running, the answer included. The queued messages are not sent; they come back into the input, to be sent or dropped. With text in the input, Ctrl-C clears it first.
+- **Output** stays with the line that caused it. Each line and what it prints are one message on the page, so two commands running side by side never mix their lines. A message that is still growing, such as an answer, moves to the end of the page once the commands after it have finished, so what is being written is where the user is looking.
+- **Questions** from commands running side by side are asked one at a time, in the order they came, and each answer goes to the command that asked.
+- **`/clear`** typed while the default harness answers ends the conversation at once. The answer still arrives on the page, but its conversation is not kept, and the next message, a queued one included, starts a new conversation. `/cls` empties the page, and an answer still arriving carries on on the clean page.
+
 ## The assistant
 
 Text typed into the console without a slash goes to the default harness, which answers it and can act on it. It is how the user manages H2H in words: "start the owner of every domain and tell me what each is working on".
@@ -395,6 +407,7 @@ A console session holds one conversation with the default harness, and the harne
 - **A changed default harness** starts a new conversation with the new one at the next message, and says so in one line.
 - **A conversation the harness no longer has**, because its history was removed, cannot be continued. When a run that should continue it fails without saying anything, H2H says so in one line and starts a new conversation, once. A run that fails for another reason, such as a usage limit, keeps the conversation for the next message.
 - **Interrupting** a run with Ctrl-C keeps a conversation that had begun. If the conversation's first run is interrupted, the next message starts a new one.
+- **Messages typed while it answers** are queued and sent together as the next message; see [Typing while a command runs](#typing-while-a-command-runs).
 - **Lines piped into `h2h`** share one conversation for as long as the input lasts, and it is not saved.
 
 How each harness is told which conversation a run belongs to is in its config entry: `conversation_args` and `resume_args`, or `conversation_key` for a harness that chooses the ID itself; see [configuration.md](configuration.md). A project's entry for a shipped harness takes these settings from the shipped entry without naming them, so a config written before they existed gets them too.

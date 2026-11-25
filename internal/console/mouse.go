@@ -203,7 +203,7 @@ func (m *model) press(x, y int) tea.Cmd {
 			m.tab = n
 			m.apply(m.snapshot())
 		}
-	case y == m.height-1 && m.tab > 0 && (m.busy || m.input.Value() == ""):
+	case y == m.height-1 && m.tab > 0 && m.input.Value() == "":
 		// The hint under a view names its actions, and each is a button.
 		n, ok := partAt(m.viewHint(), x-1)
 		if _, isGraph := m.graph(); isGraph {

@@ -36,9 +36,13 @@ const (
 	// tabPad is the space inside a tab's label, on each side of its name.
 	tabPad = 1
 
-	idleHint        = "enter send · shift+enter new line · tab complete · shift+tab switch view · ↑↓ history · wheel, pgup/pgdn, shift+↑↓ scroll · end latest · drag to copy"
-	busyHint        = "working · ctrl+c to cancel"
-	dialogLine      = "answer in the box above"
+	idleHint    = "enter send · shift+enter new line · tab complete · shift+tab switch view · ↑↓ history · wheel, pgup/pgdn, shift+↑↓ scroll · end latest · drag to copy"
+	busyHint    = "enter send · / commands run beside it · ctrl+c cancel"
+	talkingHint = "enter queue a message · / commands run now · ctrl+c cancel"
+	queuedHint  = "%d queued, sent when the answer ends · ↑ edit · esc drop · ctrl+c cancel"
+	dialogLine  = "answer in the box above"
+	// maxQueuedRows is how many queued messages are shown above the input.
+	maxQueuedRows   = 3
 	exitHint        = "press ctrl+c again to exit"
 	suggestionsHint = "↑↓ choose · tab or click complete · enter run · esc hide"
 )
@@ -65,12 +69,14 @@ type (
 	// confirmMsg asks the user a question. The answer goes to reply when a
 	// command asked, or to then when the console itself did.
 	confirmMsg struct {
+		from     int // the command that asked, or 0
 		question string
 		reply    chan<- bool
 		then     func() tea.Cmd
 	}
 	// chooseMsg asks the user to tick options, for a command.
 	chooseMsg struct {
+		from     int // the command that asked
 		question string
 		options  []Option
 		reply    chan<- choice
@@ -104,6 +110,7 @@ type model struct {
 	transcript    string
 	lines         []string           // the transcript as wrapped for the screen
 	starts        []int              // where each message starts in the transcript, in bytes
+	owners        []int              // the command whose line and output each message is, or 0; one per start
 	sections      []int              // where each message starts in lines
 	hoverRow      int                // the row of the transcript under the mouse, or -1
 	sel           *selection         // text dragged over in the transcript
@@ -129,12 +136,19 @@ type model struct {
 	histPos int // index into history; len(history) means the line being typed
 
 	// busy says a command is running, and cancel stops every one that
-	// is. More than one can run: while the first works, the views stay
-	// usable, and an action chosen there runs beside it.
-	busy      bool
-	cancel    context.CancelFunc
-	running   int
+	// is. More than one can run: the input stays open while one works, and
+	// a command typed or chosen on a view runs beside it.
+	busy    bool
+	cancel  context.CancelFunc
+	running map[int]bool // the numbers of the commands running
+	// talking is the number of the message to the default harness being
+	// answered, or 0. A message typed meanwhile waits in queued, and the
+	// queued ones are sent together, as one message, when the answer ends.
+	talking int
+	queued  []string
+
 	dialog    *dialog                 // the question on screen, if any
+	waiting   []func()                // questions that open, in turn, once it is answered
 	chat      *chatBox                // the conversation on screen, if any
 	answered  func(d *dialog) tea.Cmd // what to do with its answer
 	exitArmed bool
@@ -149,7 +163,8 @@ func newModel(o Options, ui UI) *model {
 
 	m := &model{o: o, ui: ui, input: in, view: viewport.New(0, 0), spin: sp, transcript: o.Intro}
 	m.copy = systemClipboard(o.Out)
-	m.starts, m.hoverRow = []int{0}, -1
+	m.starts, m.owners, m.hoverRow = []int{0}, []int{0}, -1
+	m.running = map[int]bool{}
 	if r := o.Restore; r != nil {
 		m.restore(*r, o.Intro)
 	}
@@ -180,6 +195,7 @@ func (m *model) restore(s State, note string) {
 		m.starts = append(m.starts, len(m.transcript))
 	}
 	m.transcript += note
+	m.owners = make([]int, len(m.starts)) // what was restored belongs to no command running now
 	m.history = append([]string{}, s.History...)
 	m.histPos = len(m.history)
 }
@@ -227,13 +243,12 @@ func (m *model) snapshot() statusMsg {
 func (m *model) apply(s statusMsg) {
 	m.status, m.views, m.alert = s.status, s.views, s.alert
 	for _, n := range s.notices {
-		if m.transcript != "" && !strings.HasSuffix(m.transcript, "\n") {
-			m.print("\n") // a line of its own, even in the middle of an answer
-		}
-		m.print(n + "\n")
+		// A message of its own, even in the middle of an answer.
+		m.begin(0)
+		m.print(n + "\n\n")
 	}
 	// A question from outside is asked when nothing else is being asked.
-	if r := s.request; r != nil && m.dialog == nil && m.chat == nil && m.width > 0 {
+	if r := s.request; r != nil && m.dialog == nil && len(m.waiting) == 0 && m.chat == nil && m.width > 0 {
 		m.dialog = newChoice(r.Question, r.Options)
 		m.dialog.single = true
 		// The focus starts on the last option, which by convention is the
@@ -246,6 +261,7 @@ func (m *model) apply(s statusMsg) {
 				picked = d.chosen()[0]
 				label = d.options[d.cursor].Label
 			}
+			m.begin(0)
 			m.print(m.o.Theme.Accent.Render(r.Question) + "\n" + label + "\n\n")
 			r.Answer(picked)
 			return nil
@@ -293,7 +309,7 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, claimMouse
 
 	case outputMsg:
-		m.print(msg.text)
+		m.printFor(msg.from, msg.text)
 		if msg.from != 0 && msg.from == m.noticeOf {
 			m.noticing.WriteString(msg.text)
 		}
@@ -304,8 +320,9 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.pollStatus()
 
 	case doneMsg:
-		if m.running--; m.running <= 0 {
-			m.running, m.busy, m.cancel = 0, false, nil
+		delete(m.running, msg.from)
+		if len(m.running) == 0 {
+			m.busy, m.cancel = false, nil
 		}
 		// The notice under a view is what its own action printed, and
 		// not what another command printed in the meantime.
@@ -313,23 +330,37 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.notice, m.noticeOf = strings.TrimSpace(m.noticing.String()), 0
 			m.noticing.Reset()
 		}
+		// Leave one blank line after a command's output, however it ended.
+		// A page that was just cleared stays empty.
+		if at := m.sectionOf(msg.from); at >= 0 {
+			if text := m.sectionText(at); text != "" {
+				end := "\n"
+				if !strings.HasSuffix(text, "\n") {
+					end = "\n\n"
+				}
+				m.printFor(msg.from, end)
+			}
+		}
 		m.apply(m.snapshot()) // a command usually changes what the views show
 		defer m.save()
 		if msg.quit {
 			return m, tea.Quit
 		}
-		// Leave one blank line after a command's output, however it ended.
-		// A page that was just cleared stays empty.
-		if m.transcript != "" {
-			if !strings.HasSuffix(m.transcript, "\n") {
-				m.print("\n")
+		// The messages typed while the default harness answered go to it
+		// now, together, as the next message.
+		if msg.from != 0 && msg.from == m.talking {
+			m.talking = 0
+			if len(m.queued) > 0 {
+				line := strings.Join(m.queued, "\n")
+				m.queued = nil
+				m.layout()
+				return m, m.submit(line)
 			}
-			m.print("\n")
 		}
 		return m, nil
 
 	case confirmMsg:
-		m.ask(msg)
+		m.openDialog(func() { m.ask(msg) })
 		return m, nil
 
 	case chatOpenMsg:
@@ -368,6 +399,7 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.chat != nil {
 			m.chat.answer(chatAnswer{})
 			m.chat = nil
+			m.nextDialog()
 		}
 		return m, nil
 
@@ -375,7 +407,7 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// A clean page for the same session: what was entered before can
 		// still be recalled, and nothing that pointed into the old page
 		// still holds.
-		m.transcript, m.starts = "", []int{0}
+		m.transcript, m.starts, m.owners = "", []int{0}, []int{0}
 		m.sel, m.notice, m.noticeOf, m.unseen, m.hoverRow = nil, "", 0, 0, -1
 		m.noticing.Reset()
 		m.layout()
@@ -393,22 +425,24 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case chooseMsg:
-		m.dialog = newChoice(msg.question, msg.options)
-		m.answered = func(d *dialog) tea.Cmd {
-			ids := d.chosen()
-			if !d.accepted {
-				ids = nil
+		m.openDialog(func() {
+			m.dialog = newChoice(msg.question, msg.options)
+			m.answered = func(d *dialog) tea.Cmd {
+				ids := d.chosen()
+				if !d.accepted {
+					ids = nil
+				}
+				picked := "none"
+				if len(ids) > 0 {
+					picked = strings.Join(ids, ", ")
+				}
+				m.printFor(msg.from, m.o.Theme.Accent.Render(msg.question)+" "+picked+"\n")
+				msg.reply <- choice{ids: ids, ok: d.accepted}
+				return nil
 			}
-			picked := "none"
-			if len(ids) > 0 {
-				picked = strings.Join(ids, ", ")
-			}
-			m.print(m.o.Theme.Accent.Render(msg.question) + " " + picked + "\n")
-			msg.reply <- choice{ids: ids, ok: d.accepted}
-			return nil
-		}
-		m.layout()
-		m.view.GotoBottom()
+			m.layout()
+			m.view.GotoBottom()
+		})
 		return m, nil
 
 	case foregroundMsg:
@@ -435,7 +469,7 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case m.dialog != nil:
 		case m.chat != nil:
 			m.chat.breakLine()
-		case !m.busy:
+		default:
 			m.input.InsertString("\n")
 			m.refresh()
 		}
@@ -491,21 +525,8 @@ func (m *model) key(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, cmd
 	}
 
-	if m.busy {
-		// The page's input waits for the command, but a view does not:
-		// its rows can be chosen and acted on while the command works.
-		if m.tab > 0 {
-			if cmd, handled := m.viewKey(k); handled {
-				return m, cmd
-			}
-		}
-		if k.Type == tea.KeyCtrlC && m.cancel != nil {
-			m.cancel()
-		}
-		return m, nil
-	}
-
-	// On a view, with nothing typed, the keys belong to the list.
+	// On a view, with nothing typed, the keys belong to the list, while a
+	// command runs as well as when none does.
 	if m.tab > 0 && m.input.Value() == "" {
 		if cmd, handled := m.viewKey(k); handled {
 			return m, cmd
@@ -518,6 +539,15 @@ func (m *model) key(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.setLine("")
 			return m, nil
 		}
+		if m.busy {
+			// Stopping the answer also stops the messages queued behind
+			// it, which come back to the input to be sent or dropped.
+			m.unqueue()
+			if m.cancel != nil {
+				m.cancel()
+			}
+			return m, nil
+		}
 		if m.exitArmed {
 			return m, tea.Quit
 		}
@@ -525,11 +555,18 @@ func (m *model) key(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tea.KeyCtrlD:
-		if m.input.Value() == "" {
+		if m.input.Value() == "" && !m.busy {
 			return m, tea.Quit
 		}
 
 	case tea.KeyEsc:
+		if len(m.shown()) == 0 && len(m.queued) > 0 {
+			n := len(m.queued)
+			m.queued = nil
+			m.flash = fmt.Sprintf("dropped %d queued %s", n, plural(n, "message", "messages"))
+			m.layout()
+			return m, nil
+		}
 		m.hidden = true
 		m.layout()
 		return m, nil
@@ -541,6 +578,11 @@ func (m *model) key(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		if n := len(m.shown()); n > 0 {
 			m.selected = (m.selected + step + n) % n
+			return m, nil
+		}
+		// Up on an empty line takes the queued messages back to edit.
+		if step < 0 && m.input.Value() == "" && len(m.queued) > 0 {
+			m.unqueue()
 			return m, nil
 		}
 		// In text of several lines the arrows move through the lines, and
@@ -592,6 +634,12 @@ func (m *model) key(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 		}
 		m.tab = 0
+		if isMessage(line) && m.talking != 0 {
+			// The default harness is still answering: the message waits.
+			m.queued = append(m.queued, line)
+			m.layout()
+			return m, nil
+		}
 		return m, m.submit(line)
 	}
 
@@ -614,7 +662,31 @@ func (m *model) settleDialog() tea.Cmd {
 	answered := m.answered
 	m.dialog, m.answered = nil, nil
 	m.layout()
-	return answered(d)
+	cmd := answered(d)
+	m.nextDialog()
+	return cmd
+}
+
+// openDialog puts a question on screen with open, or, while another is
+// being answered, once that one is. Commands running side by side may ask
+// at the same moment, and each gets its own answer.
+func (m *model) openDialog(open func()) {
+	if m.dialog == nil && m.chat == nil {
+		open()
+		return
+	}
+	m.waiting = append(m.waiting, open)
+}
+
+// nextDialog opens the question that waited longest, if nothing is on
+// screen.
+func (m *model) nextDialog() {
+	if m.dialog != nil || m.chat != nil || len(m.waiting) == 0 {
+		return
+	}
+	open := m.waiting[0]
+	m.waiting = m.waiting[1:]
+	open()
 }
 
 // ask puts a yes-or-no question on screen. The answer goes to the command
@@ -627,7 +699,7 @@ func (m *model) ask(c confirmMsg) {
 			if d.accepted {
 				answer = "yes"
 			}
-			m.print(m.o.Theme.Accent.Render(c.question) + " " + answer + "\n")
+			m.printFor(c.from, m.o.Theme.Accent.Render(c.question)+" "+answer+"\n")
 			c.reply <- d.accepted
 			return nil
 		}
@@ -643,20 +715,21 @@ func (m *model) ask(c confirmMsg) {
 // submit runs a line through the handler, off the interface's own loop.
 func (m *model) submit(line string) tea.Cmd {
 	// A line and everything it prints are one message.
-	if len(m.transcript) > 0 {
-		m.starts = append(m.starts, len(m.transcript))
-	}
+	m.commands++
+	number, ui := m.commands, m.ui
+	m.begin(number)
 	m.print(m.o.Theme.Accent.Render(promptText+strings.ReplaceAll(line, "\n", "\n"+continuation)) + "\n")
 
 	// The command gets a UI of its own, which marks what it prints.
-	m.commands++
-	number, ui := m.commands, m.ui
 	if p, ok := m.ui.(*programUI); ok {
-		ui = &programUI{p: p.p, command: number}
+		ui = &programUI{box: p.box, command: number}
+	}
+	if isMessage(line) {
+		m.talking = number
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	already, others := m.busy, m.cancel
-	m.running++
+	m.running[number] = true
 	m.busy, m.cancel = true, func() {
 		cancel()
 		if others != nil {
@@ -751,7 +824,7 @@ func (m *model) runAction(a Action) tea.Cmd {
 	if a.Confirm == "" {
 		return run()
 	}
-	m.ask(confirmMsg{question: fmt.Sprintf(a.Confirm, id), then: run})
+	m.openDialog(func() { m.ask(confirmMsg{question: fmt.Sprintf(a.Confirm, id), then: run}) })
 	return nil
 }
 
@@ -806,7 +879,7 @@ func (m *model) refresh() {
 
 // shown returns the suggestions on screen.
 func (m *model) shown() []Suggestion {
-	if m.hidden || m.busy || m.dialog != nil || m.chat != nil {
+	if m.hidden || m.dialog != nil || m.chat != nil {
 		return nil
 	}
 	if len(m.offers) > maxSuggestions {
@@ -820,22 +893,24 @@ func (m *model) shown() []Suggestion {
 // print adds text to the transcript, staying at the bottom if the user has
 // not scrolled away from it.
 func (m *model) print(text string) {
+	m.place(len(m.transcript), text)
+}
+
+// place puts text into the transcript at a byte offset, moving the
+// messages after it down. Like print, it keeps a user who was reading the
+// latest output there.
+func (m *model) place(at int, text string) {
 	follow, before := m.view.AtBottom(), len(m.lines)
-	m.transcript += text
-	if over := len(m.transcript) - maxTranscript; over > 0 {
-		// Drop the oldest text, from a line boundary.
-		if cut := strings.IndexByte(m.transcript[over:], '\n'); cut >= 0 {
-			m.transcript = m.transcript[over+cut+1:]
-			m.sel = nil // its lines have moved
-			starts := []int{0}
-			for _, s := range m.starts {
-				if s -= over + cut + 1; s > 0 {
-					starts = append(starts, s)
-				}
-			}
-			m.starts = starts
+	m.transcript = m.transcript[:at] + text + m.transcript[at:]
+	for n, s := range m.starts {
+		if s >= at && n > 0 && at < len(m.transcript)-len(text) {
+			m.starts[n] = s + len(text)
 		}
 	}
+	if at < len(m.transcript)-len(text) {
+		m.sel = nil // the lines under it have moved
+	}
+	m.trim()
 	m.layout()
 	if follow {
 		m.jump()
@@ -845,6 +920,122 @@ func (m *model) print(text string) {
 	m.unseen += max(0, len(m.lines)-before)
 }
 
+// trim drops the oldest text, from a line boundary, when the transcript
+// has grown past its limit.
+func (m *model) trim() {
+	over := len(m.transcript) - maxTranscript
+	if over <= 0 {
+		return
+	}
+	cut := strings.IndexByte(m.transcript[over:], '\n')
+	if cut < 0 {
+		return
+	}
+	drop := over + cut + 1
+	m.transcript = m.transcript[drop:]
+	m.sel = nil // its lines have moved
+	// The message the cut falls in starts the transcript now.
+	starts, owners := []int{0}, []int{0}
+	for n, s := range m.starts {
+		if s -= drop; s > 0 {
+			starts, owners = append(starts, s), append(owners, m.owners[n])
+		} else {
+			owners[0] = m.owners[n]
+		}
+	}
+	m.starts, m.owners = starts, owners
+}
+
+// isMessage says whether a line is a message for the default harness,
+// rather than a command.
+func isMessage(line string) bool { return !strings.HasPrefix(line, "/") }
+
+// begin starts a message at the end of the transcript, holding the line
+// and output of the command numbered owner, or of none when it is 0.
+func (m *model) begin(owner int) {
+	if len(m.transcript) > 0 {
+		m.starts, m.owners = append(m.starts, len(m.transcript)), append(m.owners, 0)
+	}
+	m.owners[len(m.owners)-1] = owner
+}
+
+// sectionOf returns the index of the message of the command numbered
+// owner, or -1 when it has none on the page, as after the page was cleared.
+func (m *model) sectionOf(owner int) int {
+	if owner == 0 {
+		return -1
+	}
+	return slices.Index(m.owners, owner)
+}
+
+// sectionEnd is where the message at index n ends, in bytes.
+func (m *model) sectionEnd(n int) int {
+	if n+1 < len(m.starts) {
+		return m.starts[n+1]
+	}
+	return len(m.transcript)
+}
+
+func (m *model) sectionText(n int) string {
+	return m.transcript[m.starts[n]:m.sectionEnd(n)]
+}
+
+// printFor adds what the command numbered from printed to its own message,
+// so that commands running side by side never mix their lines. A message
+// that grows while the ones after it are finished moves to the end of the
+// page first, where the user is looking; while one after it still runs,
+// it grows where it is.
+func (m *model) printFor(from int, text string) {
+	at := m.sectionOf(from)
+	if at < 0 || at == len(m.starts)-1 {
+		m.print(text)
+		return
+	}
+	if !slices.ContainsFunc(m.owners[at+1:], func(o int) bool { return m.running[o] }) {
+		m.moveToEnd(at)
+		m.print(text)
+		return
+	}
+	m.place(m.sectionEnd(at), text)
+}
+
+// moveToEnd moves the message at index n to the end of the transcript.
+func (m *model) moveToEnd(n int) {
+	text, owner := m.sectionText(n), m.owners[n]
+	m.transcript = m.transcript[:m.starts[n]] + m.transcript[m.sectionEnd(n):]
+	for k := n + 1; k < len(m.starts); k++ {
+		m.starts[k] -= len(text)
+	}
+	m.starts, m.owners = slices.Delete(m.starts, n, n+1), slices.Delete(m.owners, n, n+1)
+	m.starts[0] = 0 // the first message, whichever it is now, starts the page
+	m.starts, m.owners = append(m.starts, len(m.transcript)), append(m.owners, owner)
+	m.transcript += text
+	m.sel = nil
+}
+
+// unqueue takes the queued messages back into the input, to be edited and
+// sent again, or dropped.
+func (m *model) unqueue() {
+	if len(m.queued) == 0 {
+		return
+	}
+	text := strings.Join(m.queued, "\n")
+	if line := m.input.Value(); line != "" {
+		text += "\n" + line
+	}
+	m.queued = nil
+	m.setLine(text)
+	m.hidden = true
+	m.layout()
+}
+
+func plural(n int, one, many string) string {
+	if n == 1 {
+		return one
+	}
+	return many
+}
+
 // middleHeight is how many rows the section between the header and the
 // input has.
 func (m *model) middleHeight() int {
@@ -852,13 +1043,44 @@ func (m *model) middleHeight() int {
 	return max(1, m.height-chromeHeight-(m.inputHeight()-1))
 }
 
-// inputHeight is how many rows the input at the bottom of the page takes.
-// While a command runs or a question is open, a single line stands there.
+// inputHeight is how many rows the input at the bottom of the page takes,
+// with the rows above it that say what is running and what is queued.
+// While a question is open, a single line stands there.
 func (m *model) inputHeight() int {
-	if m.busy || m.dialog != nil || m.chat != nil || m.width == 0 {
+	if m.dialog != nil || m.chat != nil || m.width == 0 {
 		return 1
 	}
-	return inputRows(m.input.Value(), max(1, m.width-chromeWidth))
+	return len(m.activityRows(max(1, m.width-chromeWidth))) + inputRows(m.input.Value(), max(1, m.width-chromeWidth))
+}
+
+// activityRows are the rows above the input while a command runs: what it
+// is doing, and the messages queued behind the default harness's answer,
+// each cut to one row.
+func (m *model) activityRows(width int) []string {
+	if !m.busy && len(m.queued) == 0 {
+		return nil
+	}
+	th := m.o.Theme
+	var rows []string
+	if m.busy {
+		row := m.spin.View() + " " + th.Dim.Render("working")
+		if m.alert != "" {
+			row = m.spin.View() + " " + m.alert
+		}
+		rows = append(rows, clip(row, width))
+	}
+	for n, q := range m.queued {
+		if n == maxQueuedRows-1 && len(m.queued) > maxQueuedRows {
+			rows = append(rows, th.Dim.Render(fmt.Sprintf("  … and %d more queued", len(m.queued)-n)))
+			break
+		}
+		first, _, more := strings.Cut(q, "\n")
+		if more {
+			first += " …"
+		}
+		rows = append(rows, clip(th.Dim.Render("  queued: "+first), width))
+	}
+	return rows
 }
 
 // layout sizes the transcript to the space the other parts leave.
@@ -961,19 +1183,25 @@ func (m *model) View() string {
 		line, hint = th.Dim.Render(dialogLine), m.dialog.hint()
 	case m.chat != nil:
 		line, hint = th.Dim.Render(dialogLine), m.chat.hint()
-	case m.busy:
-		line, hint = m.spin.View()+" "+th.Dim.Render("working"), busyHint
-		if m.alert != "" {
-			line, hint = m.spin.View()+" "+m.alert, "ctrl+c to cancel"
-		}
-		if m.tab > 0 {
-			hint = m.viewHint() + hintSep + "ctrl+c cancel"
-		}
 	default:
 		typing = true
 		line, hint = m.input.View(), idleHint
+		if rows := m.activityRows(inner); len(rows) > 0 {
+			line = strings.Join(rows, "\n") + "\n" + line
+		}
+		switch {
+		case len(m.queued) > 0 && m.input.Value() == "":
+			hint = fmt.Sprintf(queuedHint, len(m.queued))
+		case m.talking != 0 && m.tab == 0 && m.input.Value() == "":
+			hint = talkingHint
+		case m.busy && m.tab == 0 && m.input.Value() == "":
+			hint = busyHint
+		}
 		if m.tab > 0 && m.input.Value() == "" {
 			hint = m.viewHint()
+			if m.busy {
+				hint += hintSep + "ctrl+c cancel"
+			}
 		}
 		if len(shown) > 0 {
 			hint = suggestionsHint

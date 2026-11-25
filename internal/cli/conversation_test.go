@@ -369,3 +369,30 @@ func TestPipedLinesShareAConversation(t *testing.T) {
 		t.Errorf("the second piped line did not continue the conversation:\n%s", args)
 	}
 }
+
+func TestAnAnswerThatEndsAfterClearDoesNotBringItBack(t *testing.T) {
+	o := &openSession{}
+	o.setTalk(talk{Harness: "claude", ID: "old"})
+	asked := o.talk() // a message is sent, in the old conversation
+
+	o.endTalk() // /clear, typed while it is answered
+	o.setTalk(talk{Harness: "claude", ID: "old", Gen: asked.Gen})
+	if got := o.talk(); got.ID != "" {
+		t.Errorf("after /clear the session keeps %+v; want no conversation", got)
+	}
+
+	// The next message starts the new conversation, which is kept.
+	next := o.talk()
+	o.setTalk(talk{Harness: "claude", ID: "new", Gen: next.Gen})
+	if got := o.talk(); got.ID != "new" {
+		t.Errorf("the session keeps %+v; want the new conversation", got)
+	}
+
+	// Switching to another saved session also leaves the answer behind.
+	asked = o.talk()
+	o.switchTo(consoleSession{ID: "other"})
+	o.setTalk(talk{Harness: "claude", ID: "new", Gen: asked.Gen})
+	if got := o.talk(); got.ID != "" {
+		t.Errorf("the session switched to keeps %+v; want its own, none", got)
+	}
+}

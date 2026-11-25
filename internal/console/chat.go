@@ -50,17 +50,17 @@ type (
 
 // programChat is the Chat a command sees in the console. Each call becomes
 // a message to the running program.
-type programChat struct{ p *tea.Program }
+type programChat struct{ box *mailbox }
 
-func (c programChat) Say(text string)  { c.p.Send(chatSayMsg{text: sanitize(text)}) }
-func (c programChat) Wait(note string) { c.p.Send(chatWaitMsg{note: note}) }
+func (c programChat) Say(text string)  { c.box.send(chatSayMsg{text: sanitize(text)}) }
+func (c programChat) Wait(note string) { c.box.send(chatWaitMsg{note: note}) }
 
-func (c programChat) Show(draw func(width int) string) { c.p.Send(chatShowMsg{draw: draw}) }
-func (c programChat) Close()                           { c.p.Send(chatCloseMsg{}) }
+func (c programChat) Show(draw func(width int) string) { c.box.send(chatShowMsg{draw: draw}) }
+func (c programChat) Close()                           { c.box.send(chatCloseMsg{}) }
 
 func (c programChat) Ask() (string, bool) {
 	reply := make(chan chatAnswer, 1)
-	c.p.Send(chatAskMsg{reply: reply})
+	c.box.send(chatAskMsg{reply: reply})
 	a := <-reply
 	return a.text, a.ok
 }

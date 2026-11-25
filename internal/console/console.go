@@ -11,6 +11,7 @@ import (
 	"context"
 	"io"
 	"os"
+	"sync"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -158,11 +159,14 @@ type Options struct {
 
 // Run shows the console until the user leaves it.
 func Run(o Options) error {
-	ui := &programUI{}
+	box := &mailbox{wake: make(chan struct{}, 1), stop: make(chan struct{})}
+	ui := &programUI{box: box}
 	// Focus reports tell the console when the user comes back to its
 	// window, which is one of the moments it asks for the mouse again.
 	p := tea.NewProgram(newModel(o, ui), tea.WithAltScreen(), tea.WithMouseAllMotion(), tea.WithReportFocus(), tea.WithInput(o.In), tea.WithOutput(o.Out))
-	ui.p = p
+	box.p = p
+	go box.deliver()
+	defer close(box.stop)
 	// Ask the terminal to tell Shift+Enter from Enter while the console
 	// has it, and put that back when it does not.
 	if o.Out != nil {
@@ -179,45 +183,87 @@ func Run(o Options) error {
 // programUI is the UI a command sees. Each call becomes a message to the
 // running program, so commands never touch the screen themselves.
 type programUI struct {
-	p *tea.Program
+	box *mailbox
 	// command is the number of the command this UI was handed to, so
 	// that what it prints can be told from what another one prints.
 	command int
 }
 
 func (u *programUI) Write(b []byte) (int, error) {
-	u.p.Send(outputMsg{from: u.command, text: sanitize(string(b))})
+	u.box.send(outputMsg{from: u.command, text: sanitize(string(b))})
 	return len(b), nil
 }
 
 func (u *programUI) Confirm(question string) bool {
 	reply := make(chan bool, 1)
-	u.p.Send(confirmMsg{question: question, reply: reply})
+	u.box.send(confirmMsg{from: u.command, question: question, reply: reply})
 	return <-reply
 }
 
 func (u *programUI) Choose(question string, options []Option) ([]string, bool) {
 	reply := make(chan choice, 1)
-	u.p.Send(chooseMsg{question: question, options: options, reply: reply})
+	u.box.send(chooseMsg{from: u.command, question: question, options: options, reply: reply})
 	c := <-reply
 	return c.ids, c.ok
 }
 
 func (u *programUI) Chat(title string) Chat {
-	u.p.Send(chatOpenMsg{title: title})
-	return programChat{p: u.p}
+	u.box.send(chatOpenMsg{title: title})
+	return programChat{box: u.box}
 }
 
-func (u *programUI) Clear() { u.p.Send(clearMsg{}) }
+func (u *programUI) Clear() { u.box.send(clearMsg{}) }
 
 func (u *programUI) Load(s State, note string) {
-	u.p.Send(loadMsg{state: s, note: note})
+	u.box.send(loadMsg{state: s, note: note})
 }
 
 func (u *programUI) Foreground(fn func() error) error {
 	reply := make(chan error, 1)
-	u.p.Send(foregroundMsg{fn: fn, reply: reply})
+	u.box.send(foregroundMsg{fn: fn, reply: reply})
 	return <-reply
+}
+
+// mailbox carries the messages of running commands to the program, in the
+// order they were sent, without making a command wait for the program.
+// The program stops reading messages while another command has the
+// terminal, such as an attached session, and a command that is still
+// working, such as an answer of the default harness, must not stop with
+// it: what it prints waits here instead and is shown on return.
+type mailbox struct {
+	p       *tea.Program
+	mu      sync.Mutex
+	pending []tea.Msg
+	wake    chan struct{} // holds one signal that pending has grown
+	stop    chan struct{} // closed when the program has ended
+}
+
+func (b *mailbox) send(msg tea.Msg) {
+	b.mu.Lock()
+	b.pending = append(b.pending, msg)
+	b.mu.Unlock()
+	select {
+	case b.wake <- struct{}{}:
+	default: // a signal is already waiting
+	}
+}
+
+// deliver hands the pending messages to the program until it ends.
+func (b *mailbox) deliver() {
+	for {
+		select {
+		case <-b.stop:
+			return
+		case <-b.wake:
+		}
+		b.mu.Lock()
+		msgs := b.pending
+		b.pending = nil
+		b.mu.Unlock()
+		for _, msg := range msgs {
+			b.p.Send(msg) // returns at once once the program has ended
+		}
+	}
 }
 
 // foreground adapts a function to what Bubble Tea runs with the terminal
