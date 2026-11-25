@@ -472,7 +472,7 @@ flowchart LR
 
 Two guards, because typing ends with Enter and H2H cannot yet see what is on the harness's screen:
 
-- **A harness that has not been told to trust the project is not typed into.** It is sitting at its trust question, and Enter would answer it, which is the user's decision to make. H2H reads the harness's trust record first, as doctor does, and refuses with a pointer to `attach`.
+- **A request is typed only where H2H knows no trust question can be waiting.** At that question Enter answers it, which is the user's decision, and in some harnesses it answers yes. H2H reads the harness's trust record first, as doctor does. It types if the record says the project is trusted, or the config says the harness asks no such question (`no_trust_question`). In every other case, including no trust settings or a record it cannot read, it refuses with a pointer to `attach`. This rests on the record being right: H2H does not yet get a signal that a session is ready for a request.
 - **A harness is left alone for its first ten seconds,** while it draws its screen.
 
 A harness that stops to ask for permission in the middle of the work does not stall unseen where its permission hook is wired to H2H: the request is answered from the project's rules, or shown as a dialog in the console; see [permissions.md](permissions.md#what-is-built). A harness that is not wired stops at a prompt in its own terminal, and the report does not come until the user attaches and answers.
@@ -573,7 +573,7 @@ A warning does not change the exit status. Any failure makes `h2h doctor` exit w
 
 Doctor takes no options: every check runs every time. Proving a login costs one short answer from each installed harness, so a run takes some seconds per harness and uses a little of each one's allowance. A harness without `ask_args` gets a warning that its login was not checked.
 
-No harness offers a command that says whether it trusts a folder, so for the permission check H2H reads the file in which the harness records it. The file, the key and the value that means "trusted" are declared per harness in the config, and H2H only reads: giving trust stays the user's act, as set out in [Workspace trust](#workspace-trust). A trusted folder covers the folders inside it, so a record for a folder above the project counts.
+No harness offers a command that says whether it trusts a folder, so for the permission check H2H reads the file in which the harness records it. The file, the key and the value that means "trusted" are declared per harness in the config, and H2H only reads: giving trust stays the user's act, as set out in [Workspace trust](#workspace-trust). Whether a record for a folder above the project counts depends on the harness.
 
 | Harness | `trust_file` | `trust_key` | `trust_value` | Checked on | Level reached |
 |---|---|---|---|---|---|
@@ -582,7 +582,9 @@ No harness offers a command that says whether it trusts a folder, so for the per
 | Copilot CLI | `~/.copilot/config.json` | `trustedFolders` | `{project}` | 1.0.114 | Half: doctor read Copilot's file, which starts with `//` comment lines and held no trusted folder, and reported the project as not trusted. A record written by Copilot for a trusted folder was not seen, so the key is from its documentation only |
 | OpenCode | None: `no_trust_question = true` | | | 2.4.1 | Behaves: started in a new repository it went straight to its prompt, with no trust question |
 
-Two limits of reading the record: a harness that moves or renames it in a later version makes the check report "not trusted" until the config is corrected, and Claude Code treats a nested repository as separate from the folder above it, which this check does not model.
+A harness that moves or renames its record in a later version makes the check report "not trusted" until the config is corrected.
+
+A record for a folder above the project counts only for a harness with `trust_covers_subfolders = true`. Claude Code treats a repository inside a trusted folder as separate and asks again; on 2026-11-25, H2H took the parent's trust for its own, typed a request into that question, and the Enter answered it "No, exit". Of the shipped harnesses only Copilot CLI has the setting, from its documentation, which says trust of a folder covers its subfolders. This was not checked for a repository of its own inside a trusted folder. Codex was seen to cover a subfolder of a trusted repository, which is not the same thing, so it does not have the setting. Where the setting is missing and a harness does cover the project from above, it asks nothing and records nothing, so H2H keeps refusing: trust the project folder itself in the harness.
 
 Every harness is checked the same way, from its config entry. How each one prints its version is declared as `version_args`:
 

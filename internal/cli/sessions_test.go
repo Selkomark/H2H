@@ -29,7 +29,7 @@ func runningSession(t *testing.T) (root, id string, done <-chan error) {
 			t.Fatalf("git %v: %v\n%s", args, err, out)
 		}
 	}
-	conf := "default_harness = \"fake\"\n[harness.fake]\ncommand = \"sh\"\nargs = [\"-c\", \"read line\"]\n"
+	conf := "default_harness = \"fake\"\n[harness.fake]\ncommand = \"sh\"\nno_trust_question = true\nargs = [\"-c\", \"read line\"]\n"
 	if err := os.WriteFile(config.Path(root), []byte(conf), 0o644); err != nil {
 		t.Fatal(err)
 	}

@@ -8,6 +8,21 @@ import (
 	"github.com/Selkomark/H2H/internal/config"
 )
 
+// covering is h with trust that holds for the folders inside a trusted one.
+func covering(h config.Harness) config.Harness {
+	h.TrustCoversSubfolders = true
+	return h
+}
+
+// Only a harness documented to cover them takes a folder above as trust.
+func TestOnlyCopilotTakesTrustFromAFolderAbove(t *testing.T) {
+	for name, h := range config.Shipped().Harnesses {
+		if h.TrustCoversSubfolders != (name == "copilot") {
+			t.Errorf("%s: trust_covers_subfolders = %t", name, h.TrustCoversSubfolders)
+		}
+	}
+}
+
 func TestTrusted(t *testing.T) {
 	const project = "/work/team/app"
 	keyed := config.Harness{TrustFile: "~/h.json", TrustKey: []string{"projects", "{project}", "accepted"}, TrustValue: "true"}
@@ -23,10 +38,12 @@ func TestTrusted(t *testing.T) {
 		{"keyed, trusted", keyed, `{"projects": {"/work/team/app": {"accepted": true}}}`, true, false},
 		{"keyed, refused", keyed, `{"projects": {"/work/team/app": {"accepted": false}}}`, false, false},
 		{"keyed, another project", keyed, `{"projects": {"/work/other": {"accepted": true}}}`, false, false},
-		{"keyed, a folder above", keyed, `{"projects": {"/work/team": {"accepted": true}}}`, true, false},
+		{"keyed, a folder above", keyed, `{"projects": {"/work/team": {"accepted": true}}}`, false, false},
+		{"keyed, a folder above that covers", covering(keyed), `{"projects": {"/work/team": {"accepted": true}}}`, true, false},
 		{"keyed, a sibling with the same prefix", keyed, `{"projects": {"/work/team/app2": {"accepted": true}}}`, false, false},
 		{"listed, trusted", listed, `{"trustedFolders": ["/x", "/work/team/app"]}`, true, false},
-		{"listed, a folder above", listed, `{"trustedFolders": ["/work"]}`, true, false},
+		{"listed, a folder above", listed, `{"trustedFolders": ["/work"]}`, false, false},
+		{"listed, a folder above that covers", covering(listed), `{"trustedFolders": ["/work"]}`, true, false},
 		{"listed, not there", listed, `{"trustedFolders": ["/x"]}`, false, false},
 		{"listed, no list yet", listed, "// managed automatically\n{\"firstLaunchAt\": \"today\"}\n", false, false},
 		{"toml, trusted", inTOML, "[projects.\"/work/team/app\"]\ntrust_level = \"trusted\"\n", true, false},

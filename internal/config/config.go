@@ -88,6 +88,11 @@ type Harness struct {
 	TrustFile  string   `toml:"trust_file"`
 	TrustKey   []string `toml:"trust_key"`
 	TrustValue string   `toml:"trust_value"`
+	// TrustCoversSubfolders says that trust given to a folder holds for
+	// every folder inside it, repositories of their own included, so a
+	// record for a folder above the project counts. Without it only a
+	// record for the project itself does.
+	TrustCoversSubfolders bool `toml:"trust_covers_subfolders"`
 	// NoTrustQuestion says the harness starts in any folder without
 	// asking whether the user trusts it, so there is nothing to check.
 	NoTrustQuestion bool `toml:"no_trust_question"`

@@ -26,8 +26,10 @@ func TrustPath(h config.Harness, home string) string {
 
 // Trusted reports whether the harness's own record says the user trusts
 // the project at root, so a session there starts without a trust question.
-// A trusted folder covers the folders inside it, so the folders above root
-// count too. H2H only reads the record: giving trust is the user's act.
+// A record for a folder above root counts only for a harness whose trust
+// covers subfolders: some ask again in a repository inside a trusted folder,
+// and believing them trusted there would let H2H type into their trust
+// question. H2H only reads the record: giving trust is the user's act.
 func Trusted(h config.Harness, root, home string) (bool, error) {
 	if !h.ChecksTrust() {
 		return false, errors.New("this harness has no trust_file in the config")
@@ -58,7 +60,7 @@ func Trusted(h config.Harness, root, home string) (bool, error) {
 		if holds(lookup(record, key), strings.ReplaceAll(h.TrustValue, config.ProjectPlaceholder, dir)) {
 			return true, nil
 		}
-		if dir == filepath.Dir(dir) {
+		if !h.TrustCoversSubfolders || dir == filepath.Dir(dir) {
 			return false, nil
 		}
 	}

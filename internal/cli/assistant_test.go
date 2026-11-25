@@ -227,7 +227,7 @@ func TestAskHarness(t *testing.T) {
 }
 
 func TestAskDelegatesToARunningHarness(t *testing.T) {
-	e, out := doctorEnv(t, "default_harness = \"fake\"\n[harness.fake]\ncommand = \"sh\"\nargs = [\"-c\", \"cat > typed.txt\"]\nask_args = [\"-c\", \"echo fresh\"]\n[domain.ui]\nharness = \"fake\"\n")
+	e, out := doctorEnv(t, "default_harness = \"fake\"\n[harness.fake]\ncommand = \"sh\"\nno_trust_question = true\nargs = [\"-c\", \"cat > typed.txt\"]\nask_args = [\"-c\", \"echo fresh\"]\n[domain.ui]\nharness = \"fake\"\n")
 	e.ui = &scriptedUI{}
 	info, err := session.Create(e.root, "ui")
 	if err != nil {
@@ -298,6 +298,42 @@ func TestAskDelegatesToARunningHarness(t *testing.T) {
 	}
 	if err := report([]string{"1", "x"}, strings.NewReader(""), func(string) string { return "" }); err == nil {
 		t.Error("a report from outside a session succeeded")
+	}
+}
+
+// Whatever H2H cannot check, it does not type into.
+func TestSafeToTypeSaysNoUnlessItKnows(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	base := "default_harness = \"fake\"\n[harness.fake]\ncommand = \"sh\"\n"
+	trust := "trust_file = \"~/fake.json\"\ntrust_key = [\"trustedFolders\"]\ntrust_value = \"{project}\"\n"
+	tests := []struct {
+		name, conf, record string // ROOT in record is the project, ABOVE its parent
+		safe               bool
+	}{
+		{"no trust settings", base, "", false},
+		{"asks no trust question", base + "no_trust_question = true\n", "", true},
+		{"no record", base + trust, "", false},
+		{"unreadable record", base + trust, "{not json", false},
+		{"project trusted", base + trust, `{"trustedFolders": ["ROOT"]}`, true},
+		{"only a folder above trusted", base + trust, `{"trustedFolders": ["ABOVE"]}`, false},
+	}
+	for _, tt := range tests {
+		e, _ := doctorEnv(t, tt.conf)
+		_ = os.Remove(filepath.Join(home, "fake.json"))
+		if tt.record != "" {
+			record := strings.NewReplacer("ROOT", e.root, "ABOVE", filepath.Dir(e.root)).Replace(tt.record)
+			if err := os.WriteFile(filepath.Join(home, "fake.json"), []byte(record), 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}
+		err := e.safeToType(session.Info{ID: "fake-1", Harness: "fake"})
+		if (err == nil) != tt.safe {
+			t.Errorf("%s: safeToType = %v, want safe %t", tt.name, err, tt.safe)
+		}
+		if err != nil && !strings.Contains(err.Error(), "attach fake-1") {
+			t.Errorf("%s: %v should point at attach", tt.name, err)
+		}
 	}
 }
 

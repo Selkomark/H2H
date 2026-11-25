@@ -69,7 +69,12 @@ default_harness = "claude"
 #             trust_file is JSON or TOML, trust_key is the path of keys to
 #             the record, and trust_value is what the record holds, or one
 #             entry of it if it is a list, when the folder is trusted.
-#             {project} is the project's path. H2H only reads this file
+#             {project} is the project's path. H2H only reads this file.
+#             trust_covers_subfolders = true says that trusting a folder
+#             covers every folder inside it, repositories of their own
+#             included; otherwise only a record for the project counts.
+#             H2H types a request into a session only where this record, or
+#             no_trust_question, says no trust question can be waiting
 #   no_trust_question
 #             true for a harness that starts in any folder without asking
 #             whether you trust it. There is then nothing for "/doctor" to
@@ -124,6 +129,7 @@ latest_command = ["npm", "view", "@github/copilot", "version"]
 trust_file = "~/.copilot/config.json"
 trust_key = ["trustedFolders"]
 trust_value = "{project}"
+trust_covers_subfolders = true
 pass_env = ["COPILOT_GITHUB_TOKEN", "GH_TOKEN", "GITHUB_TOKEN"]
 
 [harness.codex]

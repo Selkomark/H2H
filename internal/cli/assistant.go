@@ -429,19 +429,47 @@ func (e *env) askHarness(ctx context.Context, args []string) error {
 	return fmt.Errorf("several harnesses are running for %s; name one: %s", args[0], strings.Join(ids, ", "))
 }
 
+// safeToType says whether a request may be typed into a session. Typing
+// ends with Enter. In a harness that has not been told to trust the
+// project, that Enter would answer its trust question, which is the user's
+// to answer, and may answer it with yes. So a request is typed only where
+// H2H knows there is no such question: anything it cannot check is a no.
+func (e *env) safeToType(info session.Info) error {
+	refuse := func(why string) error {
+		return fmt.Errorf("%s, so H2H will not type into %s: it could answer a trust question for you. Give it the request yourself: attach %s", why, info.ID, info.ID)
+	}
+	cfg, err := config.Load(e.root)
+	if err != nil {
+		return refuse("the config cannot be read (" + err.Error() + ")")
+	}
+	h, ok := cfg.Harnesses[info.Harness]
+	switch {
+	case !ok:
+		return refuse(info.Harness + " is not in the config")
+	case h.NoTrustQuestion:
+		return nil
+	case !h.ChecksTrust():
+		return refuse("the config does not say how to check that " + info.Harness + " trusts this project")
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return refuse("the home directory is unknown")
+	}
+	trusted, err := harness.Trusted(h, e.root, home)
+	if err != nil {
+		return refuse("what " + info.Harness + " trusts cannot be read (" + err.Error() + ")")
+	}
+	if !trusted {
+		return refuse(info.Harness + " has not been told to trust this project")
+	}
+	return nil
+}
+
 // askRunning types a request into a running harness's terminal and waits
 // for its report.
 func (e *env) askRunning(ctx context.Context, info session.Info, question string) error {
-	// Typing ends with Enter. In a harness that has not been told to
-	// trust the project, that Enter would answer its trust question, which
-	// is the user's to answer. So such a harness is not typed into.
-	if cfg, err := config.Load(e.root); err == nil {
-		if h, ok := cfg.Harnesses[info.Harness]; ok && h.ChecksTrust() {
-			home, _ := os.UserHomeDir()
-			if trusted, err := harness.Trusted(h, e.root, home); err == nil && !trusted {
-				return fmt.Errorf("%s has not been told to trust this project, so it is waiting at its trust question and cannot take a request; answer it first: attach %s", info.Harness, info.ID)
-			}
-		}
+	if err := e.safeToType(info); err != nil {
+		return err
 	}
 	// A harness that has only just started is still drawing its screen
 	// and would lose what is typed. There is no signal yet for when it is
