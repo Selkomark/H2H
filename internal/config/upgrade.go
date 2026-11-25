@@ -46,6 +46,11 @@ var retired = []struct {
 	value        any
 }{
 	{"claude", "context_args", []any{"--append-system-prompt"}},
+	// Plan mode made the assistant think it could not ask H2H to run commands.
+	{"claude", "ask_args", []any{"--permission-mode", "plan", "-p"}},
+	{"claude", "stream_args", []any{"--permission-mode", "plan", "-p", "--output-format", "stream-json", "--include-partial-messages", "--verbose"}},
+	{"claude", "conversation_args", []any{"--permission-mode", "plan", "-p", "--output-format", "stream-json", "--include-partial-messages", "--verbose", "--session-id", "{conversation}"}},
+	{"claude", "resume_args", []any{"--permission-mode", "plan", "-p", "--output-format", "stream-json", "--include-partial-messages", "--verbose", "--resume", "{conversation}"}},
 }
 
 // dropRetired removes settings whose value is one H2H no longer ships.

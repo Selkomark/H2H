@@ -411,6 +411,17 @@ A console session holds one conversation with the default harness, and the harne
 - **Lines piped into `h2h`** share one conversation for as long as the input lasts, and it is not saved.
 
 How each harness is told which conversation a run belongs to is in its config entry: `conversation_args` and `resume_args`, or `conversation_key` for a harness that chooses the ID itself; see [configuration.md](configuration.md). A project's entry for a shipped harness takes these settings from the shipped entry without naming them, so a config written before they existed gets them too.
+A plan mode is not the way to make this run read-only. In Claude Code's plan mode the model took itself to be unable to ask for commands: it answered that plan mode had to be turned off, which the user cannot do from the console, and wrote plan files instead. Claude Code is therefore given only its reading and search tools, with `--tools Read,Glob,Grep`, and no MCP servers, with `--strict-mcp-config`.
+
+| Harness | Asked to start a harness: asks H2H to run it | Asked to write a file itself: no file | Checked on |
+|---|---|---|---|
+| Claude Code | Yes | Yes. A run with these arguments also reported only `Glob`, `Grep` and `Read` as its tools, and no MCP servers | 2.1.332 |
+| Codex CLI | Yes | Yes | 0.172.0 |
+| Copilot CLI | Yes | Yes | 1.0.116 |
+| OpenCode | Not checked: its free usage limit was reached. It still runs with `--agent plan`, so it may have the same problem | Not checked | 2.4.1 |
+
+For Codex and Copilot, no file shows what the model did, not that the harness would have stopped a write.
+
 
 | Harness | Version checked | New conversation | Later messages | Level reached |
 |---|---|---|---|---|
@@ -464,7 +475,7 @@ An answer is shown while it is written. Each harness can print its events as JSO
 
 | Harness | `stream_args` | Text is at | Arrives | Checked on | Level reached |
 |---|---|---|---|---|---|
-| Claude Code | `--permission-mode plan -p --output-format stream-json --include-partial-messages --verbose` | `event.delta.text` | In parts, as written | 2.1.331 | Behaves: a forty-line answer began at 5.6 s and ended at 7.5 s |
+| Claude Code | `--permission-mode manual --tools Read,Glob,Grep --strict-mcp-config -p --output-format stream-json --include-partial-messages --verbose` | `event.delta.text` | In parts, as written | 2.1.331 | Behaves: a forty-line answer began at 5.6 s and ended at 7.5 s, measured with the earlier plan-mode arguments |
 | Copilot CLI | `--output-format json --stream on -p` | `data.deltaContent` | In parts, as written | 1.0.114 | Behaves: the same answer began at 4.5 s and ended at 6.5 s |
 | Codex CLI | `exec --sandbox read-only --json` | `item.text`, where `item.type` is `agent_message` | A whole message at a time: Codex does not print parts | 0.172.0 | Behaves: the answer arrived whole at 5.9 s |
 | OpenCode | `run --standalone --agent plan --format json` | `part.text`, where `type` is `text` | A whole part at a time | 2.4.1 | Accepted: the JSON lines were read from a real run and the shape is in the tests. Not watched in the console |

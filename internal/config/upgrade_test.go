@@ -15,8 +15,8 @@ default_harness = "claude"
 # Claude, as shipped.
 [harness.claude]
 command = "claude"
-ask_args = ["--permission-mode", "plan", "-p"]
-stream_args = ["--permission-mode", "plan", "-p",
+ask_args = ["--permission-mode", "manual", "--tools", "Read,Glob,Grep", "--strict-mcp-config", "-p"]
+stream_args = ["--permission-mode", "manual", "--tools", "Read,Glob,Grep", "--strict-mcp-config", "-p",
   "--output-format", "stream-json", "--include-partial-messages", "--verbose"]
 context_args = ["--append-system-prompt"]
 pass_env = ["ANTHROPIC_API_KEY", "MY_PROXY_TOKEN"] # ours
@@ -96,5 +96,16 @@ func TestUpgradeLeavesAnUnreadableFileAlone(t *testing.T) {
 	text := "default_harness = \n[harness.claude]\ncommand = \"claude\"\n"
 	if next, changes := Upgrade(text); next != text || len(changes) != 0 {
 		t.Errorf("a file that does not read was changed: %q", changes)
+	}
+}
+
+// A project that copied the plan-mode arguments must not stay stuck with them.
+func TestUpgradeDropsThePlanModeArguments(t *testing.T) {
+	text := "default_harness = \"claude\"\n[harness.claude]\ncommand = \"claude\"\n" +
+		"ask_args = [\"--permission-mode\", \"plan\", \"-p\"]\n" +
+		"resume_args = [\"--permission-mode\", \"plan\", \"-p\", \"--output-format\", \"stream-json\", \"--include-partial-messages\", \"--verbose\", \"--resume\", \"{conversation}\"]\n"
+	next, changes := Upgrade(text)
+	if len(changes) == 0 || strings.Contains(next, "plan") {
+		t.Errorf("Upgrade = %q, %q; want both lines gone", next, changes)
 	}
 }

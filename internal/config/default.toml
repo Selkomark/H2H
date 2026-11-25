@@ -88,16 +88,16 @@ default_harness = "claude"
 [harness.claude]
 command = "claude"
 args = []
-ask_args = ["--permission-mode", "plan", "-p"]
+ask_args = ["--permission-mode", "manual", "--tools", "Read,Glob,Grep", "--strict-mcp-config", "-p"]
 context_args = ["--append-system-prompt", "{roles}"]
 permit_args = ["--settings", '{"hooks":{"PermissionRequest":[{"matcher":"*","hooks":[{"type":"command","command":"{permit}","timeout":600}]}]}}']
 state_args = ["--plugin-dir", "{state_dir}"]
 state_files = { ".claude-plugin/plugin.json" = "{\"name\":\"h2h-state\",\"version\":\"1.0.0\",\"description\":\"Tells H2H when this session waits for the user\"}", "hooks/hooks.json" = "{\"hooks\":{\"Notification\":[{\"matcher\":\"permission_prompt|elicitation_dialog\",\"hooks\":[{\"type\":\"command\",\"command\":\"'{state}' wait\",\"timeout\":10}]}],\"PostToolUse\":[{\"hooks\":[{\"type\":\"command\",\"command\":\"'{state}' go\",\"timeout\":10}]}],\"PostToolUseFailure\":[{\"hooks\":[{\"type\":\"command\",\"command\":\"'{state}' go\",\"timeout\":10}]}],\"UserPromptSubmit\":[{\"hooks\":[{\"type\":\"command\",\"command\":\"'{state}' go\",\"timeout\":10}]}],\"Stop\":[{\"hooks\":[{\"type\":\"command\",\"command\":\"'{state}' go\",\"timeout\":10}]}]}}" }
 report_args = ["--allowedTools", "Bash(h2h-report:*)"]
-stream_args = ["--permission-mode", "plan", "-p", "--output-format", "stream-json", "--include-partial-messages", "--verbose"]
+stream_args = ["--permission-mode", "manual", "--tools", "Read,Glob,Grep", "--strict-mcp-config", "-p", "--output-format", "stream-json", "--include-partial-messages", "--verbose"]
 stream_text = "event.delta.text"
-conversation_args = ["--permission-mode", "plan", "-p", "--output-format", "stream-json", "--include-partial-messages", "--verbose", "--session-id", "{conversation}"]
-resume_args = ["--permission-mode", "plan", "-p", "--output-format", "stream-json", "--include-partial-messages", "--verbose", "--resume", "{conversation}"]
+conversation_args = ["--permission-mode", "manual", "--tools", "Read,Glob,Grep", "--strict-mcp-config", "-p", "--output-format", "stream-json", "--include-partial-messages", "--verbose", "--session-id", "{conversation}"]
+resume_args = ["--permission-mode", "manual", "--tools", "Read,Glob,Grep", "--strict-mcp-config", "-p", "--output-format", "stream-json", "--include-partial-messages", "--verbose", "--resume", "{conversation}"]
 version_args = ["--version"]
 install_command = ["npm", "install", "-g", "@anthropic-ai/claude-code@latest"]
 latest_command = ["npm", "view", "@anthropic-ai/claude-code", "version"]

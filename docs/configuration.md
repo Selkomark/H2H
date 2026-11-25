@@ -16,7 +16,7 @@ default_harness = "claude"
 [harness.claude]
 command = "claude"
 args = []
-ask_args = ["--permission-mode", "plan", "-p"]
+ask_args = ["--permission-mode", "manual", "--tools", "Read,Glob,Grep", "--strict-mcp-config", "-p"]
 version_args = ["--version"]
 install_command = ["npm", "install", "-g", "@anthropic-ai/claude-code@latest"]
 latest_command = ["npm", "view", "@anthropic-ai/claude-code", "version"]
@@ -44,7 +44,7 @@ depends_on = ["ui", "backend"]
 |---|---|
 | `default_harness` | The harness used when none is named, and the one that answers the console |
 | `command`, `args` | How to start an interactive session |
-| `ask_args` | How to get one non-interactive answer. The prompt is appended. A read-only mode is used where the harness has one |
+| `ask_args` | How to get one non-interactive answer. The prompt is appended. The harness is limited to reading where it has an option for that. For Claude Code this is a short tool list, not plan mode; see [runtime.md](runtime.md#the-assistant) |
 | `permit_args` | Arguments added to a session so the harness asks H2H, through its own permission hook, instead of stopping at a prompt. `{permit}` is the program the hook runs. See [permissions.md](permissions.md#what-is-built) |
 | `[permissions]` | What a harness may do without asking: `mode` (`ask` or `auto`), `allow` and `deny` patterns. See [permissions.md](permissions.md#the-rules) |
 | `state_args`, `state_env`, `state_files` | The harness's own hooks that tell H2H when a session stops to wait for the user and when it carries on. A hook runs `{state}` with `wait`, optionally naming the kinds of notification that count, or `go`. `state_files` maps a file name to its content, written with `{state}` filled in into a folder of the session's own that `{state_dir}` names, for a harness that reads hooks from files such as a plugin. See [runtime.md](runtime.md#waiting-for-you) |
