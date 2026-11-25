@@ -4,3 +4,6 @@
 
 # H2H runtime state: sessions, logs and workspaces
 /.h2h/
+
+# Worktrees made for agents working on this repository
+/.claude/worktrees/
