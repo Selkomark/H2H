@@ -241,8 +241,20 @@ func (e *env) rm(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	if info.State == session.Running || info.State == session.Starting {
-		return fmt.Errorf("%s is %s; stop it first", info.ID, info.State)
+	switch info.State {
+	case session.Starting:
+		return fmt.Errorf("%s is still starting; try again in a moment", info.ID)
+	case session.Running:
+		// Deleting a running harness means stopping it, which the user
+		// decides here instead of being sent away to do it by hand.
+		if !e.ui.Confirm(fmt.Sprintf("%s is running. Stop it and delete it?", info.ID)) {
+			fmt.Fprintf(e.out, "Left %s running.\n", info.ID)
+			return nil
+		}
+		if err := keeper.Stop(e.root, info); err != nil {
+			return err
+		}
+		fmt.Fprintf(e.out, "Stopped %s.\n", info.ID)
 	}
 	// A workspace with uncommitted work is deleted only if the user says so.
 	force := false
