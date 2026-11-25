@@ -23,6 +23,7 @@ Differences between products are data, not code (`.claude/skills/go-architecture
 
 - **In config:** the harness's entry in `default.toml` (for example `context_args`, `context_env`, `ask_args`). Code reads the setting and never branches on a product name.
 - **Placeholders, not special cases:** when products need the same value in different shapes, add a placeholder that config fills in (for example `{roles}` and `{roles_dir}`), and validate that it is used.
+- **Changing a shipped value:** add the old value to `retired` in `internal/config/upgrade.go`, so `doctor` can remove it from projects that copied it. A renamed or removed setting gets an upgrade step there too, so older configs keep reading.
 - **A shipped-defaults test:** for each capability, a test over `config.Template()` fails if any shipped harness lacks it (for example `TestShippedHarnessesPassRoles`). Add one for every new capability.
 
 ## 3. How to verify, for each harness

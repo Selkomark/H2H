@@ -31,7 +31,8 @@ func doctorEnv(t *testing.T, conf string) (*env, *bytes.Buffer) {
 		}
 	}
 	var out bytes.Buffer
-	return &env{root: root, out: &out, errw: &out, environ: os.Environ(), st: plainStyles()}, &out
+	// Questions are declined unless a test says otherwise.
+	return &env{root: root, out: &out, errw: &out, ui: &scriptedUI{}, environ: os.Environ(), st: plainStyles()}, &out
 }
 
 // A harness that runs, and answers when asked.
@@ -235,5 +236,48 @@ func TestDoctorNamesSettingsAnOlderConfigLacks(t *testing.T) {
 	lines := strings.Join(config.Harness{Command: "claude"}.Lacks(shipped.Harnesses["claude"]), "\n")
 	if cfg, err := config.Parse("default_harness = \"claude\"\n[harness.claude]\ncommand = \"claude\"\n" + lines + "\n"); err != nil || !cfg.Harnesses["claude"].AsksH2H() {
 		t.Errorf("the lines doctor shows do not parse back: %v\n%s", err, lines)
+	}
+}
+
+func TestDoctorOffersToUpgradeAnOlderConfig(t *testing.T) {
+	t.Setenv("PATH", "/usr/bin:/bin") // keep the real harnesses off PATH
+	// Written for an earlier H2H: a whole copy of the shipped claude entry,
+	// with a value H2H no longer ships, which today's H2H cannot read.
+	older := "default_harness = \"claude\"\n[harness.claude]\ncommand = \"claude\"\n" +
+		"ask_args = [\"--permission-mode\", \"plan\", \"-p\"]\ncontext_args = [\"--append-system-prompt\"]\n"
+
+	// Declined: the file stays as it was.
+	e, out := doctorEnv(t, older)
+	if _, err := config.Load(e.root); err == nil || !strings.Contains(err.Error(), "doctor can bring it up to date") {
+		t.Fatalf("Load = %v; want an error that points at doctor", err)
+	}
+	_ = e.doctor(context.Background(), nil)
+	if !strings.Contains(out.String(), "was written for an earlier H2H") || !strings.Contains(out.String(), "claude.context_args") {
+		t.Errorf("doctor did not offer the upgrade:\n%s", out)
+	}
+	if got, _ := os.ReadFile(config.Path(e.root)); string(got) != older {
+		t.Errorf("declined, but the config changed:\n%s", got)
+	}
+
+	// Accepted: the copies and the retired value go, and the config reads.
+	e, out = doctorEnv(t, older)
+	e.ui = &scriptedUI{yes: true}
+	_ = e.doctor(context.Background(), nil)
+	got, _ := os.ReadFile(config.Path(e.root))
+	if want := "default_harness = \"claude\"\n[harness.claude]\ncommand = \"claude\"\n"; string(got) != want {
+		t.Errorf("config after the upgrade =\n%s\nwant\n%s", got, want)
+	}
+	if _, err := config.Load(e.root); err != nil {
+		t.Errorf("the upgraded config does not load: %v", err)
+	}
+	if !strings.Contains(out.String(), "Applied.") {
+		t.Errorf("doctor did not apply the upgrade:\n%s", out)
+	}
+
+	// Up to date: nothing is offered.
+	out.Reset()
+	_ = e.doctor(context.Background(), nil)
+	if strings.Contains(out.String(), "earlier H2H") {
+		t.Errorf("an up-to-date config was offered an upgrade:\n%s", out)
 	}
 }

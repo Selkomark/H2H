@@ -266,6 +266,13 @@ func Load(root string) (Config, error) {
 	}
 	c, err := Parse(string(text))
 	if err != nil {
+		// A config that only fails because it was written for an earlier
+		// H2H is one "doctor" can put right, and the error says so.
+		if next, changes := Upgrade(string(text)); len(changes) > 0 {
+			if _, upgraded := Parse(next); upgraded == nil {
+				return Config{}, fmt.Errorf("%s: %w; it was written for an earlier H2H, and doctor can bring it up to date", FileName, err)
+			}
+		}
 		return Config{}, fmt.Errorf("%s: %w", FileName, err)
 	}
 	return c, nil

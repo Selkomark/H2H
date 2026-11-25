@@ -69,15 +69,17 @@ func (d *diagnosis) fix(fix string) {
 
 // doctor checks that everything H2H needs is in place: the system, the
 // project, the config, and every configured harness, including its login
-// and whether it trusts the project. It changes nothing. Proving a login
-// costs one short answer from each harness.
+// and whether it trusts the project. The one thing it may change is a
+// config written for an earlier H2H, which it offers to bring up to date
+// and changes only if the user says yes. Proving a login costs one short
+// answer from each harness.
 func (e *env) doctor(ctx context.Context, args []string) error {
 	if len(args) > 0 {
 		return errors.New("usage: doctor")
 	}
 	d := &diagnosis{e: e}
 	d.system(ctx)
-	if cfg, ok := d.config(); ok {
+	if cfg, ok := d.config(ctx); ok {
 		d.harnesses(ctx, cfg)
 		if e.root != "" {
 			d.permission(cfg)
@@ -165,9 +167,12 @@ func (d *diagnosis) gitignore(ctx context.Context) {
 
 // config checks the project's config and returns it. Outside a project the
 // shipped defaults stand in, so the harnesses can still be checked.
-func (d *diagnosis) config() (config.Config, bool) {
+func (d *diagnosis) config(ctx context.Context) (config.Config, bool) {
 	e := d.e
 	d.section("Config")
+	if e.root != "" {
+		d.upgrade(ctx)
+	}
 	if e.root == "" {
 		cfg, err := config.Parse(config.Template())
 		if err != nil {
@@ -203,6 +208,33 @@ func (d *diagnosis) config() (config.Config, bool) {
 		}
 	}
 	return cfg, true
+}
+
+// upgrade offers to bring a config written for an earlier H2H up to date
+// with this one. It runs before the config is read, since an older config
+// may not read at all. The change goes through the same plan and apply as
+// any other: the lines that change are shown, and nothing is written
+// without a yes.
+func (d *diagnosis) upgrade(ctx context.Context) {
+	e := d.e
+	text, exists, err := e.configText()
+	if err != nil || !exists {
+		return
+	}
+	next, changes := config.Upgrade(text)
+	if len(changes) == 0 {
+		return
+	}
+	d.warn(config.FileName, "was written for an earlier H2H and can be brought up to date:", "")
+	for _, change := range changes {
+		fmt.Fprintf(e.out, "    %-18s %s\n", "", e.st.dim.Render(change))
+	}
+	fmt.Fprintln(e.out)
+	if applied, err := e.configApply(ctx, text, true, next); err != nil {
+		d.fail(config.FileName, "could not be updated: "+err.Error(), "")
+	} else if applied {
+		d.warned-- // put right, so it no longer counts against the project
+	}
 }
 
 // harnesses checks every configured harness the same way: installed, runs,

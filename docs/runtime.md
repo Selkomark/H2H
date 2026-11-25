@@ -373,7 +373,7 @@ A console session holds one conversation with the default harness, and the harne
 - **Interrupting** a run with Ctrl-C keeps a conversation that had begun. If the conversation's first run is interrupted, the next message starts a new one.
 - **Lines piped into `h2h`** share one conversation for as long as the input lasts, and it is not saved.
 
-How each harness is told which conversation a run belongs to is in its config entry: `conversation_args` and `resume_args`, or `conversation_key` for a harness that chooses the ID itself; see [configuration.md](configuration.md). A config written before these settings existed keeps working, and each message is then a fresh run, as before; doctor lists the settings it lacks.
+How each harness is told which conversation a run belongs to is in its config entry: `conversation_args` and `resume_args`, or `conversation_key` for a harness that chooses the ID itself; see [configuration.md](configuration.md). A project's entry for a shipped harness takes these settings from the shipped entry without naming them, so a config written before they existed gets them too.
 
 | Harness | Version checked | New conversation | Later messages | Level reached |
 |---|---|---|---|---|
@@ -472,7 +472,7 @@ The files are private to the user, like the rest of the state directory. They ho
 
 ## Doctor
 
-`h2h doctor`, or `/doctor` in the console, checks what H2H needs before the user relies on it. It changes nothing: no state directory, no workspace and no session is created. It also runs outside a git repository, where it reports that and still checks the harnesses against the shipped defaults.
+`h2h doctor`, or `/doctor` in the console, checks what H2H needs before the user relies on it. It creates no state directory, workspace or session. The one thing it may change is `h2h.toml`, when the config was written for an earlier H2H, and only after the user says yes; see [Bringing an older config up to date](#bringing-an-older-config-up-to-date). It also runs outside a git repository, where it reports that and still checks the harnesses against the shipped defaults.
 
 | Check | Passes when | If not |
 |---|---|---|
@@ -483,12 +483,26 @@ The files are private to the user, like the rest of the state directory. They ho
 | `.gitignore` | Git leaves `.h2h/` and the config's temporary file out of the project, through the project's `.gitignore` or another rule | Warns, with the lines missing. Starting a harness or applying the config adds them |
 | sessions | A pseudo-terminal opens, and a local socket can listen in the private directory under `/tmp` | Fails |
 | editor | `$VISUAL`, `$EDITOR`, nano or vi is installed | Warns: only `config --manual` needs it |
+| `h2h.toml` up to date | The config needs nothing to work as this H2H expects | Warns, shows the changes, and offers to apply them; see below |
 | `h2h.toml` | The config exists and is valid | Without one, warns that the shipped defaults are in force and points at `/config`. With one that does not parse, has a setting H2H does not know, or a value it does not accept, fails with what is wrong, and the harnesses are not checked |
-| each harness: settings | The project's entry for a harness H2H ships has every setting the shipped one has | Warns, and prints the lines to add. A config written by an earlier H2H keeps working without the settings added since, and goes without what they switch on: the permission hook, the report command, streaming |
+| each harness: settings | The project's entry for a harness, under a shipped name but run by another program, has every setting the shipped one has | Warns, and prints the lines to add. An entry for the shipped program needs no lines: it takes every setting it does not name from the shipped entry; see [configuration.md](configuration.md) |
 | each harness: installed | Its `command` is on PATH | Fails for the default harness and for the owner of a domain. Warns for a harness nothing depends on |
 | each harness: runs | With `version_args` set, the program prints its version and exits cleanly. This catches a program that is installed but broken | As above |
 | each harness: login | The harness gives one short answer through its `ask_args` | As above |
 | each harness: permission | The harness's own record says the user trusts the project, or a folder above it | Warns: a session of that harness waits at its trust question until someone attaches and answers |
+
+### Bringing an older config up to date
+
+A project's `h2h.toml` may have been written for an earlier H2H, often by `/config`, which used to copy whole harness entries into it. Doctor checks the file against what this H2H expects before reading it, since an older config may not read at all, and offers the changes it needs. They go through plan and apply like any config change: the lines that change are shown, then the setup they give, and nothing is written without a yes. Doctor then carries on with the updated config. A command that cannot read an older config says that doctor can bring it up to date.
+
+The changes only remove lines, so the comments and layout of the file stay as they were:
+
+| Change | Removes | Why |
+|---|---|---|
+| Retired values | A harness setting whose value H2H shipped once and has since replaced | The project copied an old default and did not choose it, so the current default applies. A retired value may not even be accepted any more |
+| Copies of the shipped entry | A harness setting with exactly the value H2H ships today, except `command` | The entry then says only how the project differs, so what later versions change reaches it. What the config sets up stays the same, which doctor checks before offering it |
+
+Both apply only to an entry with the name and the program of a harness H2H ships; an entry of the project's own is left alone. When a shipped value changes, the old value is added to the list of retired values in `internal/config/upgrade.go`. A future change to the config format that older configs need, such as a renamed setting, is added there as another step.
 
 **Harnesses the config does not have.** The binary carries the config it ships with, so it knows every harness its own version supports, whatever a project's `h2h.toml` lists. A config written for an earlier H2H does not name what was added since. Doctor lists those under "Also supported", with whether each is installed. They are neither warnings nor failures. A harness the user renamed is recognised by its program and not listed again.
 
