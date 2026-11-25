@@ -289,6 +289,29 @@ Run on 2026-11-25 with the built `h2h`, after a Copilot session sat at its own p
 
 Two things learned on the way: only the last `--settings` given to Claude Code counts, so its waiting hooks could not share the flag with its permission hook and come from a plugin instead; and Copilot loads hooks from a plugin folder given at launch, so H2H needs nothing in `~/.copilot`.
 
+## Later check: controlling a Codex session
+
+Run on 2026-11-25 with Codex CLI 0.172.0 on one macOS laptop, as the first of the experiments in [control.md](control.md#experiments-first). A throwaway script, standing in for H2H, connected to `codex app-server --listen unix://<path>`, and Codex's own screen joined with `codex resume <thread> --remote unix://<path>` in a pseudo-terminal. H2H itself was not involved. Sessions ran with a read-only sandbox and approval on request, in a project Codex already trusted, on the models `gpt-5.6-terra` and `gpt-6-luna`. The script is not part of this repository. Its checks of what the screen showed searched the terminal output for expected text.
+
+| Tested | Result |
+|---|---|
+| H2H creates the thread, sends a turn, and the screen joins | Pass. The screen showed the earlier turn and later ones as they ran |
+| A turn typed on the screen, as H2H sees it | Pass. H2H received its progress and the reply |
+| Status | `thread/status/changed` reported active, idle, `waitingOnApproval` and `waitingOnUserInput` |
+| `turn/interrupt` while a command ran | Pass. The turn ended as interrupted, and the next one completed |
+| H2H declines, then accepts, a command approval | Pass. The declined command did not run and the accepted one did. The screen showed the request |
+| The user answers an approval on the screen first | Pass. H2H was sent `serverRequest/resolved`. A later answer from H2H caused no error |
+| A question from `request_user_input`, answered by H2H, in plan mode | Pass in 3 runs, 2 with the screen attached, where the screen showed it too. In 1 other run, with the screen attached, no question reached H2H. What the model did in that run was not captured |
+| H2H sets plan mode and back with `thread/settings/update` | Pass, confirmed by `thread/settings/updated` |
+| Plan mode switched on the screen with Shift+Tab, then ended by H2H | Pass. H2H was told of the switch and brought the session out |
+| H2H changes model and effort | Pass. The change was confirmed, a later turn completed, and the screen redrew with the new model. Which model and effort that turn used was not checked separately |
+| Role instructions and a hook, given to the server with `-c` | Pass. The role was followed and the hook ran, with and without `--dangerously-bypass-hook-trust`. Why it ran without the flag was not examined |
+| The screen creates the thread and H2H joins later | Not working in this test. `thread/resume` on the thread the screen had just used answered "no rollout found" |
+
+The `collaborationMode` and `thread/settings/update` parts of the protocol appear in the schema only when it is generated with `--experimental`, and the client asked for the experimental API. The whole app server is marked experimental.
+
+Not tested: H2H reconnecting after it restarts, a server that crashes, several sessions at once, role instructions or hooks given to the screen instead of the server, `h2h-report` and H2H's own state and permission hooks through the server, approval of file changes, and trust in a worktree.
+
 ## Limits
 
 - **Small sample.** One machine, one version of each harness, one to three runs per case, trivial tasks. Differences in spike 03 are within run-to-run variation.

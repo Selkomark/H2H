@@ -96,6 +96,7 @@ Read in this order:
 - [docs/runtime.md](docs/runtime.md): sessions, keepers, workspaces and trust, hooks, monitoring, crash recovery and the choice of Go
 - [docs/governance.md](docs/governance.md): tickets, proof of work, who checks the work, approvals, autonomy and intended use
 - [docs/permissions.md](docs/permissions.md): how H2H answers a harness's permission requests on the user's behalf
+- [docs/control.md](docs/control.md): the plan for running every harness from H2H with the same commands
 - [docs/planning.md](docs/planning.md): kanban and managed modes, the project manager, estimation, sprints and the retro
 - [docs/cost.md](docs/cost.md): where cost comes from and how the design limits it
 - [docs/configuration.md](docs/configuration.md): config as code, the CLI and the UI
@@ -112,6 +113,8 @@ Diagrams in these documents are Mermaid and follow the rules in `.claude/skills/
 Anything built or tested for one harness is built and tested for every harness, following `.claude/skills/harness-parity/`.
 
 Go code follows the package layout, dependency rule and principles (least privilege, KISS, DRY) in `.claude/skills/go-architecture/`.
+
+AI agents working on this repository start with [AGENTS.md](AGENTS.md).
 
 ## Licence
 
