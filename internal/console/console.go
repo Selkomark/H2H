@@ -139,6 +139,11 @@ type Options struct {
 	// Status returns the line under the title. It is called every few
 	// seconds, so it can show live state.
 	Status func() string
+	// Heed, if set, is called with Status. It returns lines to add to the
+	// transcript, each about something the user must know at once, such
+	// as a harness that stopped to wait for them, and a short line to show
+	// in place of "working" while a command runs, or "".
+	Heed func() (notices []string, alert string)
 	// Views are the tabs that follow the transcript's own tab.
 	Views []View
 	// Commands are offered while the first word of a line is typed.

@@ -108,6 +108,19 @@ type Harness struct {
 	// {permit} in them is the path of the program the hook runs. A
 	// harness without them asks in its own terminal, as it does alone.
 	PermitArgs []string `toml:"permit_args"`
+	// StateArgs, StateEnv and StateFiles give an interactive session the
+	// harness's own hooks that tell H2H when it stops to wait for the user
+	// and when it carries on. A hook runs {state} with "wait" or "go"; see
+	// docs/runtime.md. StateFiles are written, with {state} filled in, into
+	// a directory of the session's own that {state_dir} names, for a
+	// harness that reads hooks only from files, such as a plugin. They go
+	// in H2H's state directory, never in the workspace.
+	StateArgs  []string          `toml:"state_args"`
+	StateEnv   []string          `toml:"state_env"`
+	StateFiles map[string]string `toml:"state_files"`
+	// NoWaitSignal says the harness has no hook that tells H2H it waits for
+	// the user. H2H then goes by a silent terminal while a request is open.
+	NoWaitSignal bool `toml:"no_wait_signal"`
 }
 
 // Permissions say what a harness may do without stopping to ask. They
@@ -132,6 +145,55 @@ const PermitPlaceholder = "{permit}"
 
 // AsksH2H reports whether the harness asks H2H before it asks the user.
 func (h Harness) AsksH2H() bool { return len(h.PermitArgs) > 0 }
+
+// StatePlaceholder stands for the program a harness's state hooks run, and
+// StateDirPlaceholder for the directory its state_files are written to.
+const (
+	StatePlaceholder    = "{state}"
+	StateDirPlaceholder = "{state_dir}"
+)
+
+// TellsWaiting reports whether the harness tells H2H, through its hooks,
+// when it stops to wait for the user.
+func (h Harness) TellsWaiting() bool {
+	return len(h.StateArgs) > 0 || len(h.StateEnv) > 0 || len(h.StateFiles) > 0
+}
+
+func (h Harness) validateState() error {
+	if !h.TellsWaiting() {
+		return nil
+	}
+	uses := func(placeholder string) bool {
+		in := func(list []string) bool {
+			return slices.ContainsFunc(list, func(a string) bool { return strings.Contains(a, placeholder) })
+		}
+		files := false
+		for _, content := range h.StateFiles {
+			files = files || strings.Contains(content, placeholder)
+		}
+		return in(h.StateArgs) || in(h.StateEnv) || files
+	}
+	if !uses(StatePlaceholder) {
+		return fmt.Errorf("state_args, state_env or state_files must contain %s, the program its hooks run", StatePlaceholder)
+	}
+	if len(h.StateFiles) > 0 && !slices.ContainsFunc(append(append([]string{}, h.StateArgs...), h.StateEnv...), func(a string) bool { return strings.Contains(a, StateDirPlaceholder) }) {
+		return fmt.Errorf("state_files are written to %s, so state_args or state_env must name it", StateDirPlaceholder)
+	}
+	for name := range h.StateFiles {
+		if name == "" || filepath.IsAbs(name) || filepath.Clean(name) != name || name == ".." || strings.HasPrefix(name, "../") {
+			return fmt.Errorf("state_files: %q must be a plain path inside the state directory", name)
+		}
+	}
+	for _, kv := range h.StateEnv {
+		if name, _, ok := strings.Cut(kv, "="); !ok || !envRE.MatchString(name) {
+			return fmt.Errorf("state_env entry %q is not NAME=value", kv)
+		}
+	}
+	if h.NoWaitSignal {
+		return errors.New("no_wait_signal says the harness has no state hooks, but it has state settings")
+	}
+	return nil
+}
 
 // Domain is an area of responsibility, owned by one harness. Its
 // sub-agents are the specialists the harness is asked to use inside it.
@@ -357,6 +419,9 @@ func (c Config) validate() error {
 			return fmt.Errorf("harness %q: %w", name, err)
 		}
 		if err := h.validateContext(); err != nil {
+			return fmt.Errorf("harness %q: %w", name, err)
+		}
+		if err := h.validateState(); err != nil {
 			return fmt.Errorf("harness %q: %w", name, err)
 		}
 	}

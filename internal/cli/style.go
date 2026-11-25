@@ -159,6 +159,8 @@ func (st styles) bar(text string, width int, since time.Duration) string {
 // state picks the style for a session state.
 func (st styles) state(i session.Info) lipgloss.Style {
 	switch {
+	case i.State == session.Running && i.Attention.Kind != session.NoAttention:
+		return st.warn // waiting, or perhaps waiting, for the user
 	case i.State == session.Running:
 		return st.good
 	case i.State == session.Starting:

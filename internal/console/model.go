@@ -59,6 +59,8 @@ type (
 		status  string
 		views   []Table
 		request *Request // a question waiting for the user, if any
+		notices []string // lines for the transcript, from Heed
+		alert   string   // from Heed
 	}
 	// confirmMsg asks the user a question. The answer goes to reply when a
 	// command asked, or to then when the console itself did.
@@ -109,6 +111,7 @@ type model struct {
 	flash         string             // a short note in the hint line, until the next key
 	copy          func(string) error // puts text on the clipboard
 	status        string
+	alert         string          // shown in place of "working", from Heed
 	tab           int             // 0 is the transcript, n is Views[n-1]
 	views         []Table         // the last content of each view
 	selectedID    []string        // the selected row of each view
@@ -215,11 +218,20 @@ func (m *model) snapshot() statusMsg {
 	if m.o.Requests != nil {
 		s.request = m.o.Requests()
 	}
+	if m.o.Heed != nil {
+		s.notices, s.alert = m.o.Heed()
+	}
 	return s
 }
 
 func (m *model) apply(s statusMsg) {
-	m.status, m.views = s.status, s.views
+	m.status, m.views, m.alert = s.status, s.views, s.alert
+	for _, n := range s.notices {
+		if m.transcript != "" && !strings.HasSuffix(m.transcript, "\n") {
+			m.print("\n") // a line of its own, even in the middle of an answer
+		}
+		m.print(n + "\n")
+	}
 	// A question from outside is asked when nothing else is being asked.
 	if r := s.request; r != nil && m.dialog == nil && m.chat == nil && m.width > 0 {
 		m.dialog = newChoice(r.Question, r.Options)
@@ -951,6 +963,9 @@ func (m *model) View() string {
 		line, hint = th.Dim.Render(dialogLine), m.chat.hint()
 	case m.busy:
 		line, hint = m.spin.View()+" "+th.Dim.Render("working"), busyHint
+		if m.alert != "" {
+			line, hint = m.spin.View()+" "+m.alert, "ctrl+c to cancel"
+		}
 		if m.tab > 0 {
 			hint = m.viewHint() + hintSep + "ctrl+c cancel"
 		}

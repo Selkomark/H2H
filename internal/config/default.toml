@@ -21,6 +21,18 @@ default_harness = "claude"
 #             its own permission hook, instead of stopping at a prompt in
 #             its terminal. {permit} is the program the hook runs. What H2H
 #             answers is set under [permissions] below
+#   state_args, state_env, state_files
+#             the harness's own hooks that tell H2H when a session stops to
+#             wait for you, at a permission prompt or a question, and when
+#             it carries on, so the console can say so. A hook runs {state}
+#             with "wait" or "go". state_files are written into a folder of
+#             the session's own in H2H's state directory, named by
+#             {state_dir}, for a harness that reads hooks from files such as
+#             a plugin. Nothing is written into the workspace
+#   no_wait_signal
+#             true for a harness with no hook that tells H2H it waits for
+#             you. H2H then goes by its terminal being silent while a
+#             request from H2H is open, and says only that it may be waiting
 #   report_args
 #             arguments added to a session so the harness may run
 #             "h2h-report", the command it answers a delegated request
@@ -79,6 +91,8 @@ args = []
 ask_args = ["--permission-mode", "plan", "-p"]
 context_args = ["--append-system-prompt", "{roles}"]
 permit_args = ["--settings", '{"hooks":{"PermissionRequest":[{"matcher":"*","hooks":[{"type":"command","command":"{permit}","timeout":600}]}]}}']
+state_args = ["--plugin-dir", "{state_dir}"]
+state_files = { ".claude-plugin/plugin.json" = "{\"name\":\"h2h-state\",\"version\":\"1.0.0\",\"description\":\"Tells H2H when this session waits for the user\"}", "hooks/hooks.json" = "{\"hooks\":{\"Notification\":[{\"matcher\":\"permission_prompt|elicitation_dialog\",\"hooks\":[{\"type\":\"command\",\"command\":\"'{state}' wait\",\"timeout\":10}]}],\"PostToolUse\":[{\"hooks\":[{\"type\":\"command\",\"command\":\"'{state}' go\",\"timeout\":10}]}],\"PostToolUseFailure\":[{\"hooks\":[{\"type\":\"command\",\"command\":\"'{state}' go\",\"timeout\":10}]}],\"UserPromptSubmit\":[{\"hooks\":[{\"type\":\"command\",\"command\":\"'{state}' go\",\"timeout\":10}]}],\"Stop\":[{\"hooks\":[{\"type\":\"command\",\"command\":\"'{state}' go\",\"timeout\":10}]}]}}" }
 report_args = ["--allowedTools", "Bash(h2h-report:*)"]
 stream_args = ["--permission-mode", "plan", "-p", "--output-format", "stream-json", "--include-partial-messages", "--verbose"]
 stream_text = "event.delta.text"
@@ -98,6 +112,8 @@ args = []
 ask_args = ["-p"]
 context_env = ["COPILOT_CUSTOM_INSTRUCTIONS_DIRS={roles_dir}"]
 report_args = ["--allow-tool", "shell(h2h-report:*)"]
+state_args = ["--plugin-dir", "{state_dir}"]
+state_files = { "plugin.json" = "{\"name\":\"h2h-state\",\"version\":\"1.0.0\",\"description\":\"Tells H2H when this session waits for the user\"}", "hooks/hooks.json" = "{\"version\":1,\"hooks\":{\"notification\":[{\"type\":\"command\",\"bash\":\"'{state}' wait permission_prompt elicitation_dialog\",\"timeoutSec\":10}],\"postToolUse\":[{\"type\":\"command\",\"bash\":\"'{state}' go\",\"timeoutSec\":10}],\"userPromptSubmitted\":[{\"type\":\"command\",\"bash\":\"'{state}' go\",\"timeoutSec\":10}],\"agentStop\":[{\"type\":\"command\",\"bash\":\"'{state}' go\",\"timeoutSec\":10}]}}" }
 stream_args = ["--output-format", "json", "--stream", "on", "-p"]
 stream_text = "data.deltaContent"
 conversation_args = ["--session-id", "{conversation}", "--output-format", "json", "--stream", "on", "-p"]
@@ -115,6 +131,7 @@ command = "codex"
 args = []
 ask_args = ["exec", "--sandbox", "read-only"]
 context_args = ["-c", "developer_instructions={roles}"]
+state_args = ["-c", "hooks.PermissionRequest=[{hooks=[{type=\"command\",command=\"'{state}' wait\",timeout=10}]}]", "-c", "hooks.PostToolUse=[{hooks=[{type=\"command\",command=\"'{state}' go\",timeout=10}]}]", "-c", "hooks.UserPromptSubmit=[{hooks=[{type=\"command\",command=\"'{state}' go\",timeout=10}]}]", "-c", "hooks.Stop=[{hooks=[{type=\"command\",command=\"'{state}' go\",timeout=10}]}]", "--dangerously-bypass-hook-trust"]
 stream_args = ["exec", "--sandbox", "read-only", "--json"]
 stream_text = "item.text"
 stream_when = "item.type=agent_message"
@@ -134,6 +151,7 @@ command = "opencode"
 args = ["--standalone"]
 ask_args = ["run", "--standalone", "--agent", "plan"]
 context_env = ['OPENCODE_CONFIG_CONTENT={"instructions":["{roles_dir}/AGENTS.md"]}']
+no_wait_signal = true
 stream_args = ["run", "--standalone", "--agent", "plan", "--format", "json"]
 stream_text = "part.text"
 stream_when = "type=text"

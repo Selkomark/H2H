@@ -39,7 +39,11 @@ type env struct {
 	// conv keeps the conversation with the default harness that the line
 	// belongs to: the console session's, or one for lines read from a
 	// pipe. It is nil for a command run from the shell.
-	conv    talks
+	conv talks
+	// heeded is what the full-screen console has told the user about
+	// harnesses that wait for them, or nil where nothing tells them, as
+	// for a command run from the shell.
+	heeded  *heeded
 	environ []string
 	st      styles
 }
@@ -225,6 +229,13 @@ func Run(args []string) int {
 				return 1
 			}
 			return 0
+		case stateCommand:
+			// Run by a harness's state hooks, through h2h-state. It never
+			// fails the hook: a harness may stop on a hook that fails.
+			if err := state(args[1:], os.Stdin, os.Getenv); err != nil {
+				fmt.Fprintln(os.Stderr, "h2h-state:", err)
+			}
+			return 0
 		case permitCommand:
 			// Run by a harness's permission hook, through h2h-permit.
 			if err := permit(os.Stdin, os.Stdout, os.Getenv); err != nil {
@@ -339,6 +350,7 @@ func (e *env) console(resume bool, resumeID string) error {
 	}
 	e.here = &openSession{root: e.root, current: newConsoleSession(e.root, time.Now())}
 	e.conv = e.here
+	e.heeded = &heeded{} // the console tells the user of a harness that waits
 	var restore *console.State
 	if resume {
 		saved, ok, err := e.sessionToResume(resumeID)
@@ -381,6 +393,7 @@ func (e *env) console(resume bool, resumeID string) error {
 		Save:     e.here.save,
 		Requests: e.pendingPermit,
 		Status:   e.statusLine,
+		Heed:     e.heed,
 		Views: []console.View{{
 			Name:    "Map",
 			Command: "/map",

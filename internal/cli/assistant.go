@@ -219,6 +219,9 @@ const assistantRules = "You are the assistant in the console of H2H, a tool that
 	"Do not tell the user to run git for this, and do not ask the harness to merge, push or switch branches: land does it, and it asks the user itself. " +
 	"You cannot change the config: for that, tell the user to run /config. " +
 	"You cannot attach to a harness: the user does that with /attach <id>. " +
+	"A harness whose state is \"waiting for you\" has stopped at a prompt in its own terminal, such as a permission prompt, and only the user can answer it: " +
+	"say so first, and tell them to answer it with /attach <id>. Do not ask it anything until then, since what is typed would land in that prompt. " +
+	"\"may be waiting for you\" means it has been silent with a request open, which usually means the same. " +
 	"When the user wants something done or found out in a domain, do not do it or answer it yourself: delegate it to that domain's harness with ask, and pass on what it reports. " +
 	"Do not change any file yourself.\n\n"
 
@@ -449,6 +452,11 @@ func (e *env) askRunning(ctx context.Context, info session.Info, question string
 		case <-time.After(wait):
 		}
 	}
+	// A harness stopped at its own prompt would take what is typed as the
+	// answer to it.
+	if now, err := session.Load(e.root, info.ID); err == nil && now.Attention.Kind == session.Waiting {
+		return fmt.Errorf("%s is waiting for your answer in its own terminal, and a request typed now would land in that prompt; answer it first: attach %s", info.ID, info.ID)
+	}
 	dir, err := session.ReportDir(e.root, info.ID)
 	if err != nil {
 		return err
@@ -473,12 +481,19 @@ func (e *env) askRunning(ctx context.Context, info session.Info, question string
 	fmt.Fprintln(e.out, e.st.dim.Render("Asked "+info.ID+" in its own session (request "+strconv.Itoa(n)+"). Waiting for its report; watch it work with: ")+e.st.accent.Render("attach "+info.ID))
 
 	deadline := time.Now().Add(reportWait)
+	var told time.Time // the wait last told about, outside the full-screen console
 	for {
 		if data, err := os.ReadFile(session.ReportPath(dir, n)); err == nil {
 			fmt.Fprintln(e.out, strings.TrimSpace(string(data)))
 			return nil
 		}
 		now, err := session.Load(e.root, info.ID)
+		// The full-screen console tells the user itself; anywhere else
+		// the wait is told here.
+		if err == nil && e.heeded == nil && now.Attention.Kind != session.NoAttention && !now.Attention.Since.Equal(told) {
+			told = now.Attention.Since
+			fmt.Fprintln(e.out, e.waitNotice(now))
+		}
 		switch {
 		case err != nil || !now.Live():
 			return fmt.Errorf("%s ended before it reported; see what it did with: logs %s", info.ID, info.ID)

@@ -104,12 +104,16 @@ func Run(root, id string) error {
 	}
 	args := append(append([]string{}, h.Args...), h.ReportArgs...)
 	for _, a := range h.PermitArgs {
-		// The path goes inside a quoted string of JSON or TOML, so what
-		// those would read as an escape is escaped.
-		quoted := strings.Trim(strconv.Quote(PermitPath(root, id)), `"`)
-		args = append(args, strings.ReplaceAll(a, config.PermitPlaceholder, quoted))
+		args = append(args, strings.ReplaceAll(a, config.PermitPlaceholder, quoted(PermitPath(root, id))))
 	}
 	extraEnv := []string{"H2H_SESSION=" + id, "H2H_ROOT=" + root, "PATH=" + shimDir + string(os.PathListSeparator) + os.Getenv("PATH")}
+	// The hooks that tell H2H when the harness waits for the user.
+	stateArgs, stateEnv, err := stateHooks(root, id, h)
+	if err != nil {
+		return fail(err)
+	}
+	args = append(args, stateArgs...)
+	extraEnv = append(extraEnv, stateEnv...)
 	if info.Domain != "" && h.PassesRoles() {
 		roles := cfg.RolesXML(info.Domain)
 		// The roles file lives in the session's state directory, never in
@@ -310,13 +314,66 @@ func reportShim(root, id string) (string, error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return "", err
 	}
-	for name, command := range map[string]string{ReportCommand: "report", PermitCommand: "permit"} {
+	for name, command := range map[string]string{ReportCommand: "report", PermitCommand: "permit", StateCommand: "state"} {
 		script := "#!/bin/sh\nH2H_ROOT=" + shellQuote(root) + " H2H_SESSION=" + shellQuote(id) + " exec " + shellQuote(exe) + " " + command + " \"$@\"\n"
 		if err := os.WriteFile(filepath.Join(filepath.Dir(path), name), []byte(script), 0o700); err != nil {
 			return "", err
 		}
 	}
 	return filepath.Dir(path), nil
+}
+
+// quoted escapes a path for a quoted string of JSON or TOML, which is
+// where a harness's hook settings put it: what those would read as an
+// escape is escaped.
+func quoted(path string) string { return strings.Trim(strconv.Quote(path), `"`) }
+
+// StateCommand is the name of the program a harness's state hooks run to
+// tell H2H that it waits for the user, or carries on.
+const StateCommand = "h2h-state"
+
+// StatePath is where a session's StateCommand is.
+func StatePath(root, id string) string {
+	return filepath.Join(session.Dir(root, id), "bin", StateCommand)
+}
+
+// StateDir is the folder of a session's own that a harness's state_files
+// are written to.
+func StateDir(root, id string) string { return filepath.Join(session.Dir(root, id), "state") }
+
+// stateHooks writes the harness's state_files into the session's own state
+// folder, and returns its state_args and state_env with the placeholders
+// filled in. Nothing goes into the workspace.
+func stateHooks(root, id string, h config.Harness) (args, env []string, err error) {
+	if !h.TellsWaiting() {
+		return nil, nil, nil
+	}
+	dir := StateDir(root, id)
+	fill := func(text string, escape bool) string {
+		program, folder := StatePath(root, id), dir
+		if escape {
+			program, folder = quoted(program), quoted(folder)
+		}
+		return strings.NewReplacer(config.StatePlaceholder, program, config.StateDirPlaceholder, folder).Replace(text)
+	}
+	for name, content := range h.StateFiles {
+		path := filepath.Join(dir, name)
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			return nil, nil, err
+		}
+		if err := os.WriteFile(path, []byte(fill(content, true)), 0o600); err != nil {
+			return nil, nil, err
+		}
+	}
+	for _, a := range h.StateArgs {
+		// A path that is the whole argument is passed as it is; inside
+		// other text it is in a quoted string of the harness's settings.
+		args = append(args, fill(a, a != config.StatePlaceholder && a != config.StateDirPlaceholder))
+	}
+	for _, kv := range h.StateEnv {
+		env = append(env, fill(kv, false))
+	}
+	return args, env, nil
 }
 
 // PermitCommand is the name of the program a harness's permission hook

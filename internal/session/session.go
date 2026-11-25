@@ -47,6 +47,9 @@ type Info struct {
 	Error      string    `json:"error,omitempty"`
 	Started    time.Time `json:"started"`
 	Ended      time.Time `json:"ended,omitzero"`
+	// Attention says whether the harness waits for the user. It is worked
+	// out when the session is loaded, and never saved.
+	Attention Attention `json:"-"`
 }
 
 // Live reports whether the session has, or is about to have, a running harness.
@@ -209,6 +212,7 @@ func Load(root, id string) (Info, error) {
 	case info.State == Starting && time.Since(info.Started) > startGrace:
 		info.State = Lost
 	}
+	info.Attention = attend(root, info, time.Now())
 	return info, nil
 }
 
@@ -244,6 +248,7 @@ func Remove(root, id string) error {
 	if sock, err := SocketPath(root, id); err == nil {
 		_ = os.RemoveAll(strings.TrimSuffix(sock, ".sock") + ".reports")
 		_ = os.RemoveAll(strings.TrimSuffix(sock, ".sock") + ".permits")
+		_ = os.Remove(strings.TrimSuffix(sock, ".sock") + ".wait")
 	}
 	return os.RemoveAll(Dir(root, id))
 }

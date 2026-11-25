@@ -50,7 +50,7 @@ h2h
 | In the console | From the shell | Does |
 |---|---|---|
 | `/start [harness \| domain]` | `h2h start [harness \| domain]` | Starts a session in its own worktree under `.h2h/workspaces/`. Naming a domain starts its owner and passes its role as XML |
-| `/ps` | `h2h ps` | Lists the harnesses that were started. In the console it opens the Harnesses tab, which updates live: arrows select, Enter attaches, `s` stops, `d` deletes, and `S` and `D` do the same to all of them |
+| `/ps` | `h2h ps` | Lists the harnesses that were started. In the console it opens the Harnesses tab, which updates live: arrows select, Enter attaches, `s` stops, `d` deletes, and `S` and `D` do the same to all of them. A harness stopped at a prompt in its own terminal shows as waiting for you, and the console says so; see [docs/runtime.md](docs/runtime.md#waiting-for-you) |
 | `/attach [id]` | `h2h attach [id]` | Opens a running harness's terminal. Ctrl-\ leaves it running |
 | `/logs [-f] [id]` | `h2h logs [-f] [id]` | Prints or follows a harness's terminal log |
 | `/stop [id \| all]` | `h2h stop [id \| all]` | Stops a running harness, or all of them after one question |

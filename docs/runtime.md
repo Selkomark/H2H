@@ -108,7 +108,7 @@ So the worktree model holds for all three, and trust and hooks are handled as fo
 
 **Trust: inherit what the user has already given.** Because workspaces sit inside the project, a project the user has trusted in a harness covers them. H2H gives no consent on the user's behalf. Where a harness does not yet trust the project, `h2h` checks before starting any session and tells the user, who consents once through the harness's own dialog or documented command.
 
-**Hooks: never written into the workspace.** Claude Code and Codex take hooks as launch arguments. Copilot reads hooks only from files, so for Copilot H2H installs its hooks once in Copilot's user folder (`~/.copilot/hooks/`), which applies to every folder:
+**Hooks: never written into the workspace.** Claude Code and Codex take hooks as launch arguments. Copilot reads hooks from files, but also from a plugin folder given at launch with `--plugin-dir`, so H2H writes its hooks into a folder of the session's own in the state directory and points Copilot at it; Claude Code takes such a plugin folder too. Nothing goes into the workspace or into `~/.copilot`; see [Waiting for you](#waiting-for-you). The earlier plan, below, put Copilot's hooks in its user folder; it was tested in spike 01 and is no longer needed:
 
 - **Installed with consent.** The install is a setup step the user approves, because it changes their own Copilot setup. H2H shows what it will add first, and removes it again on uninstall.
 - **Inactive outside H2H.** The hooks do nothing unless the session was started by H2H, which they tell from an environment variable H2H sets. The user's ordinary Copilot sessions are unaffected.
@@ -191,6 +191,30 @@ Two cautions from the spikes:
 
 - **Idle is not done.** A harness can end its turn with a command still running in the background. A ticket is done on a report and verified proof, never on the turn ending.
 - **Exit is not the only end.** A harness run without a terminal can finish its work and stay alive. Every run has a time limit.
+
+What is built so far: a session is starting, running, exited or lost, and a running one may be **waiting for you**, below. Working, idle and hung are not built.
+
+### Waiting for you
+
+A harness that stops to ask the user something, above all whether it may do a thing, waits at a prompt in its own terminal, where nobody may be looking. H2H says so the moment it knows, in two ways that read nothing off the screen:
+
+| Shown as | Decided by | Certain? |
+|---|---|---|
+| waiting for you | The harness's own hooks run the session's `h2h-state` program: `h2h-state wait` when it stops for the user, and `h2h-state go` when it carries on | Yes |
+| may be waiting for you | A request from H2H (`/ask`) is open, and the terminal has produced no bytes for 20 seconds. A harness at work keeps drawing, even while a slow command runs ([findings.md](findings.md), spike 01), so a silence that long almost always means it waits | No, and it is labelled so |
+
+Where it shows: the session's state, in amber, in the status line, the Harnesses tab, the Map, `h2h ps` and the harness list the default harness is given; a line in the Console transcript, once per wait, saying what the harness waits for and to answer it with `/attach <id>`; in place of "working" while a command runs; and, for `h2h ask` run from the shell, a line under the request. `/ask` refuses to type a request into a harness that waits, because the text would land in its prompt. There is no bell.
+
+The hooks are declared per harness in the config, as `state_args`, `state_env` and `state_files` (see [configuration.md](configuration.md)), and never written into the workspace or into a harness's own settings. `state_files` go in a folder of the session's own in the state directory, `.h2h/sessions/<id>/state/`. The wait record sits beside the session's socket, where a hook may write even when the harness confines what it runs.
+
+| Harness | How the hooks are given | Stops for the user | Carries on | Version, verified |
+|---|---|---|---|---|
+| Claude Code | A plugin folder, `--plugin-dir`, since `--settings` already carries the permission hook and only the last `--settings` counts | `Notification`, for `permission_prompt` and `elicitation_dialog` | `PostToolUse`, `PostToolUseFailure`, `UserPromptSubmit`, `Stop` | 2.1.332: a real permission prompt was marked within seconds and cleared when answered |
+| Copilot CLI | A plugin folder, `--plugin-dir`, so nothing goes into `~/.copilot` | `notification`, for `permission_prompt` and `elicitation_dialog` | `postToolUse`, `userPromptSubmitted`, `agentStop` | 1.0.115: a real permission prompt was marked within 2 seconds, with what it asked, and cleared when answered |
+| Codex CLI | `-c hooks.<Event>=...` overrides, with `--dangerously-bypass-hook-trust`, since H2H writes these hooks itself | `PermissionRequest`, which fires only when Codex is about to ask | `PostToolUse`, `UserPromptSubmit`, `Stop` | 0.171.0: the hooks run as given and the go hook clears a wait; the prompt itself was measured in spike 01 on the same version |
+| OpenCode | None: `no_wait_signal = true` | Silence while a request is open | Output | 2.4.1: its plugin loads from `OPENCODE_CONFIG_DIR`, but its event hook received no events in a session, so there is no signal to use yet |
+
+A wait the hooks recorded is cleared by the harness's own "carries on" events. Answering by attaching produces one of them. When a session is removed, its wait record goes with it.
 
 ### Harness adapters
 

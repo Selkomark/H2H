@@ -66,6 +66,10 @@ func sessionLines(root string, infos []session.Info, st styles) []string {
 // stateText is the state of a session as shown to the user.
 func stateText(i session.Info) string {
 	switch {
+	case i.State == session.Running && i.Attention.Kind == session.Waiting:
+		return "waiting for you"
+	case i.State == session.Running && i.Attention.Kind == session.Quiet:
+		return "may be waiting for you"
 	case i.State == session.Exited && i.Error != "":
 		return "failed"
 	case i.State == session.Exited && i.ExitCode != nil && *i.ExitCode < 0:
@@ -142,8 +146,13 @@ func (e *env) start(ctx context.Context, args []string) error {
 		fmt.Fprintln(e.out, e.st.warn.Render("Note:")+" harness "+name+" has no context_args or context_env in the config, so the session was not told its role in "+domain+".")
 	}
 	fmt.Fprintf(e.out, "%s %s. Open it with: %s\n", e.st.good.Render("Started"), info.ID, e.st.accent.Render("attach "+info.ID))
-	if !h.AsksH2H() {
-		fmt.Fprintln(e.out, e.st.dim.Render("When "+name+" needs permission it stops at a prompt in its own terminal, which H2H cannot answer for it; attach to answer."))
+	switch {
+	case h.AsksH2H():
+		// Its permission requests come to the console, as a dialog.
+	case h.TellsWaiting():
+		fmt.Fprintln(e.out, e.st.dim.Render("When "+name+" stops to ask you something, such as permission, it asks in its own terminal. H2H tells you here when it does; answer it with ")+e.st.accent.Render("attach "+info.ID))
+	default:
+		fmt.Fprintln(e.out, e.st.dim.Render(fmt.Sprintf("When %s stops to ask you something, such as permission, it asks in its own terminal and cannot tell H2H. H2H says it may be waiting once it has been quiet for %s with a request open; answer it with ", name, session.QuietAfter))+e.st.accent.Render("attach "+info.ID))
 	}
 	return nil
 }

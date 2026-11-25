@@ -275,6 +275,20 @@ Each was fixed by the builder in one round and passed by the tester on the secon
 | Hidden checks missed real defects | Proof run by H2H does not replace an independent reviewer | [governance.md](governance.md) |
 | Rework doubles the builder's cost, and usage units differ | Rework is recorded as its own cost, and budgets are kept per harness in its own unit | [cost.md](cost.md) |
 
+## Later check: telling the user a harness waits
+
+Run on 2026-11-25 with the built `h2h`, after a Copilot session sat at its own permission prompt during an `/ask` and nothing told the user. Each harness was started through `h2h start` in a scratch project, given a request that needs permission, and watched through `h2h ps`.
+
+| Harness | Version | Signal | Result |
+|---|---|---|---|
+| Claude Code | 2.1.332 | `Notification` hook, `permission_prompt`, from a plugin folder given with `--plugin-dir` | Marked "waiting for you" 4 seconds after the request was typed, with "Claude needs your permission"; cleared once the prompt was answered by attaching. Run with `permit_args` emptied and in manual permission mode, since in its usual mode Claude Code did not stop to ask, and with the permission hook its requests go to H2H's queue instead |
+| Copilot CLI | 1.0.115 | `notification` hook, `permission_prompt`, from a plugin folder given with `--plugin-dir` | Marked 2 seconds after the request, with "Permission needed: Edit file: <path>"; cleared once answered |
+| Codex CLI | 0.171.0 | `PermissionRequest` hook, given with `-c hooks.PermissionRequest=...` | The hooks, given that way with `--dangerously-bypass-hook-trust`, ran: the go hook cleared a wait set beforehand. Its interactive screen opened on an update offer and a session picker that a scripted terminal could not get past, so the prompt itself was not reached; spike 01 measured the `PermissionRequest` hook at a prompt on this version |
+| OpenCode | 2.4.1 | None | A plugin placed in a folder named by `OPENCODE_CONFIG_DIR` loaded, but its event hook received no events, and the session ran `touch` without asking. It falls back to silence |
+| Any | | No bytes for 20 seconds with a request open | A stand-in harness that reads the request and goes silent was shown "may be waiting for you" once the request was 20 seconds old, and `h2h ask` printed the notice |
+
+Two things learned on the way: only the last `--settings` given to Claude Code counts, so its waiting hooks could not share the flag with its permission hook and come from a plugin instead; and Copilot loads hooks from a plugin folder given at launch, so H2H needs nothing in `~/.copilot`.
+
 ## Limits
 
 - **Small sample.** One machine, one version of each harness, one to three runs per case, trivial tasks. Differences in spike 03 are within run-to-run variation.

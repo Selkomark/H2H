@@ -152,7 +152,9 @@ When H2H cannot judge a request, it never allows it: a request it cannot read, o
 | Copilot CLI | Not wired. It reads hooks only from files in its user folder, so this needs an install the user approves; see [runtime.md](runtime.md) | 1.0.114 | None |
 | OpenCode | Not wired. It has no hook that runs a program: a permission request goes to the client attached to its server, which answers once, always or reject over its HTTP API. Wiring it needs code that talks to that API. Its own default allows everything except reading `.env` files, so a session does not stop to ask | 2.4.1 | None |
 
-A harness that is not wired behaves as it does on its own: it stops at a prompt in its terminal, and the user answers by attaching. `h2h start` says so when it starts one.
+A harness that is not wired behaves as it does on its own: it stops at a prompt in its terminal, and the user answers by attaching. `h2h start` says so when it starts one. The user is no longer left to find that out: H2H marks such a session "waiting for you" and says so in the console the moment the harness's own hooks report the prompt, which Copilot and Codex now do, or "may be waiting for you" once a session with a request open has been silent for 20 seconds, which covers OpenCode; see [runtime.md](runtime.md#waiting-for-you).
+
+Wiring Copilot and Codex to this queue as well is still open. Copilot's permission hook fires before every tool call, including those its own rules allow, so H2H would have to allow what Copilot allows by itself, or every read would ask. Copilot's hooks no longer need an install in its user folder, though: it loads them from a plugin folder given with `--plugin-dir`, as the waiting hooks do. For Codex the review flag is now in use for the waiting hooks, so what remains is sharing its one `PermissionRequest` hook between H2H's answer and the waiting signal, and checking a held request end to end.
 
 ## Validation
 
