@@ -29,7 +29,9 @@ const (
 	// Columns the frame and its padding take on each line.
 	chromeWidth = 4
 
-	tabSep = "   "
+	tabSep = " "
+	// tabPad is the space inside a tab's label, on each side of its name.
+	tabPad = 1
 
 	idleHint        = "enter send · shift+enter new line · tab complete · shift+tab switch view · ↑↓ history · wheel, pgup/pgdn, shift+↑↓ scroll · end latest · drag to copy"
 	busyHint        = "working · ctrl+c to cancel"
@@ -1014,6 +1016,10 @@ func (m *model) viewText() string {
 		return strings.Repeat("\n", graphTop) + pad + strings.ReplaceAll(d.render(th, m.graphSelection(d)), "\n", "\n"+pad)
 	}
 	if len(t.Rows) == 0 {
+		// The result of the action that emptied the list is still shown.
+		if m.notice != "" {
+			return t.Empty + "\n\n" + m.notice
+		}
 		return t.Empty
 	}
 	lines := []string{"  " + t.Header}
@@ -1047,11 +1053,13 @@ func (m *model) viewHint() string {
 func (m *model) tabRow(width int) string {
 	th := m.o.Theme
 	names := m.tabNames()
+	// The tab on screen is a filled label; the others are padded to the
+	// same width, so switching never shifts the row.
 	for n, name := range names {
 		if n == m.tab {
-			names[n] = th.Accent.Underline(true).Render(name)
+			names[n] = th.Accent.Reverse(true).Bold(true).Padding(0, tabPad).Render(name)
 		} else {
-			names[n] = th.Dim.Render(name)
+			names[n] = th.Dim.Padding(0, tabPad).Render(name)
 		}
 	}
 	tabs := strings.Join(names, tabSep)

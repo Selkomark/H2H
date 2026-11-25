@@ -162,8 +162,9 @@ func (e *env) attach(_ context.Context, args []string) error {
 	var ended bool
 	err = e.ui.Foreground(func() error {
 		var err error
+		up := time.Now()
 		ended, err = keeper.Attach(info.Socket, e.in, e.tty, func(width int) string {
-			return e.st.bar(" H2H  "+info.ID+"   ctrl+\\ return to h2h, the harness keeps running", width)
+			return e.st.bar(" H2H  "+info.ID+"   ctrl+\\ return to h2h, the harness keeps running", width, time.Since(up))
 		})
 		return err
 	})

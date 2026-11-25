@@ -367,7 +367,7 @@ func (e *env) console(resume bool, resumeID string) error {
 		In:    e.in,
 		Out:   e.tty,
 		Theme: e.theme(),
-		Title: e.st.accent.Render("H2H") + " " + e.st.dim.Render(Version+"  ·  ") + displayPath(e.root, os.Getenv("HOME"), 40) +
+		Title: e.st.gradient("H2H") + " " + e.st.dim.Render(Version+"  ·  ") + displayPath(e.root, os.Getenv("HOME"), 40) +
 			e.st.dim.Render("  ·  default harness ") + harnessName,
 		Intro:    intro,
 		Restore:  restore,

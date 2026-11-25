@@ -204,7 +204,7 @@ func (m *model) cellAt(x, y int) cell {
 func (m *model) tabAt(x int) (int, bool) {
 	at := 0
 	for n, name := range m.tabNames() {
-		if w := lipgloss.Width(name); x >= at && x < at+w {
+		if w := lipgloss.Width(name) + 2*tabPad; x >= at && x < at+w {
 			return n, true
 		} else {
 			at += w + lipgloss.Width(tabSep)

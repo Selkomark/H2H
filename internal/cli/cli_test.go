@@ -2,9 +2,13 @@ package cli
 
 import (
 	"errors"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/charmbracelet/lipgloss"
 )
 
 func TestLineDiff(t *testing.T) {
@@ -138,4 +142,79 @@ func TestEditorCommand(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestMix(t *testing.T) {
+	a, b := rgb{0, 100, 200}, rgb{100, 200, 0}
+	tests := []struct {
+		t    float64
+		want rgb
+	}{
+		{0, a}, {1, b}, {0.5, rgb{50, 150, 100}}, {-1, a}, {2, b},
+	}
+	for _, tt := range tests {
+		if got := mix(a, b, tt.t); got != tt.want {
+			t.Errorf("mix(a, b, %v) = %v, want %v", tt.t, got, tt.want)
+		}
+	}
+}
+
+func TestParseHex(t *testing.T) {
+	if got := parseHex("#4DEB9A"); got != (rgb{0x4D, 0xEB, 0x9A}) {
+		t.Errorf("parseHex = %v", got)
+	}
+	if got := (rgb{0x4D, 0xEB, 0x9A}).color(); string(got) != "#4DEB9A" {
+		t.Errorf("color() = %q", got)
+	}
+}
+
+func TestBarColorSweeps(t *testing.T) {
+	// With the light off the bar, the ends are the plain gradient.
+	if got := barColor(0, 0); got != barStart {
+		t.Errorf("left end at the start of a sweep = %v, want %v", got, barStart)
+	}
+	if got := barColor(1, 0); got != barEnd {
+		t.Errorf("right end at the start of a sweep = %v, want %v", got, barEnd)
+	}
+	// Half way through, the middle is lit and the ends are not.
+	mid, plain := barColor(0.5, 0.5), mix(barStart, barEnd, 0.5)
+	if mid == plain || mid.r <= plain.r {
+		t.Errorf("middle at half sweep = %v; want it lighter than the plain %v", mid, plain)
+	}
+	if got := barColor(0, 0.5); got != barStart {
+		t.Errorf("left end at half sweep = %v, want it unlit: %v", got, barStart)
+	}
+	// The light has left by the end, so the next sweep starts without a jump.
+	if got := barColor(1, 1); got != barEnd {
+		t.Errorf("right end at the end of a sweep = %v, want %v", got, barEnd)
+	}
+}
+
+func TestBarFillsTheWidth(t *testing.T) {
+	st := newStyles()
+	for _, width := range []int{0, 1, 10, 80, 200} {
+		for _, since := range []time.Duration{0, time.Second, 2500 * time.Millisecond} {
+			got := st.bar(" H2H  claude-1   ctrl+\\ return to h2h", width, since)
+			if w := lipgloss.Width(got); w != width {
+				t.Errorf("bar at width %d after %v is %d wide", width, since, w)
+			}
+		}
+	}
+	if got := st.bar(" H2H  claude-1", 40, 0); !strings.Contains(got, "claude-1") && !strings.Contains(stripColour(got), "claude-1") {
+		t.Errorf("bar lost its text: %q", got)
+	}
+}
+
+func TestGradientKeepsTheText(t *testing.T) {
+	if got := stripColour(newStyles().gradient("H2H")); got != "H2H" {
+		t.Errorf("gradient text = %q, want H2H", got)
+	}
+	if got := plainStyles().gradient("H2H"); got != "H2H" {
+		t.Errorf("plain gradient = %q, want it unchanged", got)
+	}
+}
+
+// stripColour removes colour codes, so text can be compared.
+func stripColour(s string) string {
+	return regexp.MustCompile(`\x1b\[[0-9;]*m`).ReplaceAllString(s, "")
 }

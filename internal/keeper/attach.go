@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/signal"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -28,6 +29,10 @@ const resetTerminal = "\x1b[r\x1b[?1049l\x1b[?25h\x1b[?1000l\x1b[?1002l\x1b[?100
 // again. Drawing between two pieces of output could split a control
 // sequence the harness is in the middle of sending.
 const barDelay = 80 * time.Millisecond
+
+// barTick is how often the bar is drawn again while the session is quiet.
+// The bar's text can change with time, which is how it moves.
+const barTick = 150 * time.Millisecond
 
 // Attach connects the user's terminal to a session until the user presses
 // DetachKey or the session ends. It reports whether the session ended.
@@ -106,19 +111,41 @@ func Attach(sock string, in *os.File, out io.Writer, bar func(width int) string)
 		}
 	}()
 
+	// The harness may clear the screen or scroll the bar away, and the bar
+	// itself changes with time, so it is drawn again at a steady pace
+	// whenever the output has paused.
+	var lastOutput atomic.Int64
+	stopBar, barStopped := make(chan struct{}), make(chan struct{})
+	go func() {
+		defer close(barStopped)
+		tick := time.NewTicker(barTick)
+		defer tick.Stop()
+		for {
+			select {
+			case <-stopBar:
+				return
+			case <-tick.C:
+				if time.Since(time.Unix(0, lastOutput.Load())) >= barDelay {
+					drawBar()
+				}
+			}
+		}
+	}()
+	// Stopped before the terminal is reset, so no bar is drawn after it.
+	defer func() {
+		close(stopBar)
+		<-barStopped
+	}()
+
 	remoteDone := make(chan struct{})
 	go func() {
 		defer close(remoteDone)
-		// The harness may clear the screen or scroll the bar away, so it is
-		// drawn again whenever the output pauses.
-		redraw := time.AfterFunc(time.Hour, drawBar)
-		defer redraw.Stop()
 		buf := make([]byte, 32*1024)
 		for {
 			n, err := conn.Read(buf)
 			if n > 0 {
 				write(string(buf[:n]))
-				redraw.Reset(barDelay)
+				lastOutput.Store(time.Now().UnixNano())
 			}
 			if err != nil {
 				return
