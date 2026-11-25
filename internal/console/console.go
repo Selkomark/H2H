@@ -154,7 +154,9 @@ type Options struct {
 // Run shows the console until the user leaves it.
 func Run(o Options) error {
 	ui := &programUI{}
-	p := tea.NewProgram(newModel(o, ui), tea.WithAltScreen(), tea.WithMouseAllMotion(), tea.WithInput(o.In), tea.WithOutput(o.Out))
+	// Focus reports tell the console when the user comes back to its
+	// window, which is one of the moments it asks for the mouse again.
+	p := tea.NewProgram(newModel(o, ui), tea.WithAltScreen(), tea.WithMouseAllMotion(), tea.WithReportFocus(), tea.WithInput(o.In), tea.WithOutput(o.Out))
 	ui.p = p
 	// Ask the terminal to tell Shift+Enter from Enter while the console
 	// has it, and put that back when it does not.

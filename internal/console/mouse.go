@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"time"
 
 	"github.com/atotto/clipboard"
 	"github.com/aymanbagabas/go-osc52/v2"
@@ -74,6 +75,52 @@ func systemClipboard(out io.Writer) func(string) error {
 	}
 }
 
+// The console can lose the mouse without being told. The terminal stops
+// reporting it when the mode is switched off, which Bubble Tea does when it
+// hands the terminal to an attached harness or an editor and does not undo
+// when it takes the terminal back, and which a terminal may do by itself
+// when the machine sleeps or its window is restored. So the console asks
+// for the mouse again at every moment it may have been lost. Asking when it
+// already has the mouse changes nothing.
+//
+// None of this reaches the terminal while a harness or an editor has it:
+// Bubble Tea runs those inside its own loop, which handles no message
+// until they return.
+
+type (
+	// mouseTickMsg is the timer's turn to ask for the mouse.
+	mouseTickMsg struct{}
+	// foregroundDoneMsg says the console has the terminal back.
+	foregroundDoneMsg struct{}
+)
+
+// foregroundDone is what runs when a harness or an editor gives the
+// terminal back: it answers the command that asked for the terminal, and
+// tells the console to take the mouse again.
+func foregroundDone(reply chan<- error) tea.ExecCallback {
+	return func(err error) tea.Msg {
+		reply <- err
+		return foregroundDoneMsg{}
+	}
+}
+
+// claimMouse asks the terminal to report the mouse to the console.
+func claimMouse() tea.Msg { return tea.EnableMouseAllMotion() }
+
+// pollMouse asks for the mouse again after a while.
+func (m *model) pollMouse() tea.Cmd {
+	return tea.Tick(mouseInterval, func(time.Time) tea.Msg { return mouseTickMsg{} })
+}
+
+// dropMouse forgets what the mouse was in the middle of: a drag whose end
+// was never reported must not go on following the pointer.
+func (m *model) dropMouse() {
+	if m.sel != nil {
+		m.sel.dragging = false
+	}
+	m.hoverRow = -1
+}
+
 // mouse handles the wheel, clicks and drags. Everything the mouse does
 // can also be done from the keyboard.
 func (m *model) mouse(e tea.MouseMsg) (tea.Model, tea.Cmd) {
@@ -96,7 +143,13 @@ func (m *model) mouse(e tea.MouseMsg) (tea.Model, tea.Cmd) {
 		return m, m.press(e.X, e.Y)
 	case tea.MouseActionMotion:
 		if m.sel != nil && m.sel.dragging {
-			m.sel.head = m.cellAt(e.X, e.Y)
+			if e.Button != tea.MouseButtonLeft {
+				// The pointer moves with no button held, so the release
+				// was lost. The selection ends where it was.
+				m.sel.dragging = false
+			} else {
+				m.sel.head = m.cellAt(e.X, e.Y)
+			}
 		}
 		m.hoverRow = -1
 		if row := e.Y - middleY; row >= 0 && row < m.view.Height && e.X >= contentX && e.X < contentX+m.view.Width {

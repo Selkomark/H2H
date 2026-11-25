@@ -19,8 +19,11 @@ const (
 	maxSuggestions = 10
 	maxTranscript  = 400_000 // bytes kept in the transcript
 	statusInterval = 2 * time.Second
-	promptText     = "> "
-	transcriptTab  = "Console"
+	// mouseInterval is how often the console asks the terminal for the
+	// mouse again, in case nothing else told it the mouse was lost.
+	mouseInterval = 10 * time.Second
+	promptText    = "> "
+	transcriptTab = "Console"
 
 	// Rows the page spends outside the middle section: the top border, the
 	// title and the tabs; the rule above the middle; the rule above the
@@ -241,7 +244,7 @@ func (m *model) apply(s statusMsg) {
 }
 
 func (m *model) Init() tea.Cmd {
-	return tea.Batch(textarea.Blink, m.pollStatus())
+	return tea.Batch(textarea.Blink, m.pollStatus(), m.pollMouse())
 }
 
 func (m *model) pollStatus() tea.Cmd {
@@ -260,7 +263,22 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.chat.resize(max(1, m.width-chromeWidth), m.middleHeight())
 		}
 		m.view.GotoBottom()
+		return m, claimMouse
+
+	case tea.FocusMsg:
+		return m, claimMouse
+
+	case tea.BlurMsg:
+		// Whatever the mouse was doing, the console will not hear how it
+		// ended.
+		m.dropMouse()
 		return m, nil
+
+	case mouseTickMsg:
+		return m, tea.Batch(claimMouse, m.pollMouse())
+
+	case foregroundDoneMsg:
+		return m, claimMouse
 
 	case outputMsg:
 		m.print(msg.text)
@@ -382,10 +400,7 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case foregroundMsg:
-		return m, tea.Exec(foreground{fn: msg.fn, out: m.out()}, func(err error) tea.Msg {
-			msg.reply <- err
-			return nil
-		})
+		return m, tea.Exec(foreground{fn: msg.fn, out: m.out()}, foregroundDone(msg.reply))
 
 	case spinner.TickMsg:
 		if !m.busy {
