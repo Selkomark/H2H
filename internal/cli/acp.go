@@ -575,3 +575,93 @@ func kilo(n int) string {
 	}
 	return fmt.Sprintf("%.1fk", float64(n)/1000)
 }
+
+// acpTalk is a conversation with a harness over ACP for a command that
+// wants one answer at a time, such as the setup conversation of /config.
+// Only the text of the answer is kept: thoughts and tool calls are not
+// shown, and every permission the harness asks for is refused.
+type acpTalk struct {
+	client  *acp.Client
+	session string
+	stop    context.CancelFunc
+
+	mu      sync.Mutex
+	reply   strings.Builder
+	refused []string
+}
+
+func (e *env) startACPTalk(ctx context.Context, h config.Harness) (*acpTalk, error) {
+	t := &acpTalk{}
+	actx, stop := context.WithCancel(context.Background())
+	client, err := acp.Start(actx, h.AcpCommand, harness.Env(h, e.environ, h.AcpEnv...), e.root, io.Discard, acp.Handlers{
+		Update: func(u acp.Update) {
+			if u.Kind == "agent_message_chunk" {
+				t.mu.Lock()
+				t.reply.WriteString(u.Text)
+				t.mu.Unlock()
+			}
+		},
+		Permission: func(p acp.Permission) string {
+			t.mu.Lock()
+			t.refused = append(t.refused, p.Title)
+			t.mu.Unlock()
+			return pick(p.Options, "reject_once")
+		},
+	})
+	if err != nil {
+		stop()
+		return nil, err
+	}
+	s, err := client.NewSession(ctx, e.root)
+	if err != nil {
+		client.Close()
+		stop()
+		return nil, err
+	}
+	t.client, t.session, t.stop = client, s.ID, stop
+	return t, nil
+}
+
+// say sends text and returns the answer. A turn that a refusal ended is
+// carried on, a few times, with the harness told what it may do.
+func (t *acpTalk) say(ctx context.Context, text string) (string, error) {
+	t.mu.Lock()
+	t.reply.Reset()
+	t.mu.Unlock()
+	for tries := 0; ; tries++ {
+		t.mu.Lock()
+		t.refused = nil
+		t.mu.Unlock()
+		done := make(chan error, 1)
+		var reason string
+		go func() {
+			r, err := t.client.Prompt(context.Background(), t.session, text)
+			reason = r
+			done <- err
+		}()
+		var err error
+		select {
+		case err = <-done:
+		case <-ctx.Done():
+			t.client.Cancel(t.session)
+			<-done
+			return "", ctx.Err()
+		}
+		if err != nil {
+			return "", err
+		}
+		t.mu.Lock()
+		refused, reply := t.refused, t.reply.String()
+		t.mu.Unlock()
+		if reason != "cancelled" || len(refused) == 0 || tries == 2 {
+			return reply, nil
+		}
+		text = "H2H refused: " + strings.Join(refused, "; ") + ". In this conversation do not run commands or change anything; " +
+			"read files only with your tools for reading them. Carry on and send your message."
+	}
+}
+
+func (t *acpTalk) close() {
+	t.client.Close()
+	t.stop()
+}

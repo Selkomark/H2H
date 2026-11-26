@@ -134,6 +134,7 @@ type fakeUI struct{}
 func (fakeUI) Write(b []byte) (int, error)              { return len(b), nil }
 func (fakeUI) Confirm(string) bool                      { return false }
 func (fakeUI) Choose(string, []Option) ([]string, bool) { return nil, false }
+func (fakeUI) Pick(string, []Option) (string, bool)     { return "", false }
 func (fakeUI) Foreground(fn func() error) error         { return fn() }
 
 func newTestModel(handle func(line string) bool) *model {

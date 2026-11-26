@@ -81,6 +81,13 @@ type (
 		options  []Option
 		reply    chan<- choice
 	}
+	// pickMsg asks the user to choose one option, for a command.
+	pickMsg struct {
+		from     int // the command that asked
+		question string
+		options  []Option
+		reply    chan<- choice
+	}
 	choice struct {
 		ids []string
 		ok  bool
@@ -420,6 +427,25 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.noticing.Reset()
 		m.layout()
 		m.view.GotoBottom()
+		return m, nil
+
+	case pickMsg:
+		m.openDialog(func() {
+			m.dialog = newChoice(msg.question, msg.options)
+			m.dialog.single = true
+			m.answered = func(d *dialog) tea.Cmd {
+				picked, label := []string(nil), "none"
+				if d.accepted {
+					picked = d.chosen()[:1]
+					label = d.options[d.cursor].Label
+				}
+				m.printFor(msg.from, m.o.Theme.Accent.Render(msg.question)+" "+label+"\n")
+				msg.reply <- choice{ids: picked, ok: d.accepted}
+				return nil
+			}
+			m.layout()
+			m.view.GotoBottom()
+		})
 		return m, nil
 
 	case chooseMsg:

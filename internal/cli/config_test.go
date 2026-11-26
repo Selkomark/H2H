@@ -270,3 +270,24 @@ func TestSetupPictureWithoutDomains(t *testing.T) {
 		t.Errorf("a config with no domains is drawn as:\n%s", got)
 	}
 }
+
+func TestConfigGuideAsksWhichHarnessHoldsIt(t *testing.T) {
+	// A second harness that can answer, beside the default one.
+	conf := guideHarness(t, false) + "[harness.other]\ncommand = \"sh\"\nask_args = [\"-c\", \"echo hi\"]\n[harness.gone]\ncommand = \"h2h-no-such-program\"\nask_args = [\"-p\"]\n"
+	e, out := doctorEnv(t, conf)
+	ui := &scriptedUI{yes: true, answers: []string{"done"}}
+	e.ui = ui
+	if err := e.config(context.Background(), nil); err != nil {
+		t.Fatalf("config: %v\n%s", err, out)
+	}
+	if !strings.Contains(ui.question, "Which harness") {
+		t.Fatalf("no harness was asked for; the last question was %q", ui.question)
+	}
+	want := []string{"guide (the default) · one run per message", "other · one run per message"}
+	if strings.Join(ui.labels, "|") != strings.Join(want, "|") {
+		t.Errorf("offered %q, want %q: the default first, and nothing that is not installed", ui.labels, want)
+	}
+	if cfg, err := config.Load(e.root); err != nil || cfg.Domains["ui"].Harness != "guide" {
+		t.Errorf("the default harness, picked, did not hold the conversation: %v %+v", err, cfg.Domains)
+	}
+}

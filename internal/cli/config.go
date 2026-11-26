@@ -8,6 +8,7 @@ import (
 	"io/fs"
 	"os"
 	"os/exec"
+	"slices"
 	"strings"
 	"time"
 
@@ -134,16 +135,16 @@ func (e *env) configGuide(ctx context.Context) error {
 			return err
 		}
 	}
-	name, h, err := cfg.Lookup("")
+	name, h, err := e.configHarness(cfg)
+	if err != nil || name == "" {
+		return err // nil when the user cancelled the choice
+	}
+	base := guidePrompt(current, exists, loadErr, e.installedHarnesses(cfg), supportedHarnesses(cfg))
+	talk, hangUp, err := e.configTalker(ctx, name, h, base)
 	if err != nil {
 		return err
 	}
-	switch _, lookErr := exec.LookPath(h.Command); {
-	case lookErr != nil:
-		return fmt.Errorf("the default harness %s is not installed, so it cannot hold this conversation; install it with: install %s, or edit the config yourself with: config %s", name, name, manualFlag)
-	case len(h.AskArgs) == 0:
-		return fmt.Errorf("the default harness %s has no ask_args, so it cannot hold this conversation; edit the config yourself with: config %s", name, manualFlag)
-	}
+	defer hangUp()
 
 	// The box is closed while the user looks at a proposal, and opened
 	// again if they turn it down and want to keep editing.
@@ -178,26 +179,21 @@ func (e *env) configGuide(ctx context.Context) error {
 			e.st.dim.Render(": you are shown the changes and a map of the result, and nothing is written before you apply it.")
 	})
 
-	base := guidePrompt(current, exists, loadErr, e.installedHarnesses(cfg), supportedHarnesses(cfg))
 	var turns []string
 	invalid := 0
 	for {
 		chat.Wait(name + " is thinking")
-		actx, cancel := context.WithTimeout(ctx, askTimeout)
-		var reply, errOut bytes.Buffer
-		err := harness.Ask(actx, h, e.environ, e.root, base+conversation(turns), &reply, &errOut)
-		cancel()
+		reply, err := talk(ctx, turns)
 		switch {
 		case ctx.Err() != nil:
 			closeChat()
 			fmt.Fprintln(e.out, "Setup cancelled. The config is unchanged.")
 			return nil
 		case err != nil:
-			// A harness run this way prints its reason as its answer.
-			return couldNotAnswer(name, h, err, errOut.String()+"\n"+reply.String())
+			return err
 		}
 
-		said, file, done := strings.Cut(reply.String(), configMarker)
+		said, file, done := strings.Cut(reply, configMarker)
 		if !done {
 			turns = append(turns, "You: "+strings.TrimSpace(said))
 			chat.Say(said)
@@ -222,7 +218,7 @@ func (e *env) configGuide(ctx context.Context) error {
 				return fmt.Errorf("%s kept writing a config that is not valid (%v); nothing was changed. Edit it yourself with: config %s", name, err, manualFlag)
 			}
 			chat.Say(fmt.Sprintf("That config was not valid (%v). Asking %s to correct it.", err, name))
-			turns = append(turns, "You: "+strings.TrimSpace(reply.String()),
+			turns = append(turns, "You: "+strings.TrimSpace(reply),
 				fmt.Sprintf("H2H: that file is not valid: %v. Correct it, and send the marker line and the complete file again.", err))
 			continue
 		}
@@ -244,7 +240,7 @@ func (e *env) configGuide(ctx context.Context) error {
 					fmt.Fprintln(e.out, "Setup stopped. The config is unchanged.")
 					return nil
 				}
-				turns = append(turns, "You: "+strings.TrimSpace(reply.String()),
+				turns = append(turns, "You: "+strings.TrimSpace(reply),
 					"H2H: the user looked at that config and the map of it, and did not apply it.", "User: "+answer)
 				continue
 			}
@@ -262,6 +258,103 @@ func (e *env) configGuide(ctx context.Context) error {
 		return nil
 	}
 }
+
+// configHarness asks which harness should hold the setup conversation,
+// from those that are installed and can hold one, the default first. It
+// asks only when there is a choice. It returns "" when the user cancelled.
+func (e *env) configHarness(cfg config.Config) (string, config.Harness, error) {
+	def, defH, err := cfg.Lookup("")
+	if err != nil {
+		return "", config.Harness{}, err
+	}
+	can := func(h config.Harness) bool {
+		_, err := exec.LookPath(h.Command)
+		return err == nil && (h.SpeaksACP() || len(h.AskArgs) > 0)
+	}
+	var options []console.Option
+	for _, name := range append([]string{def}, cfg.Names()...) {
+		h := cfg.Harnesses[name]
+		if !can(h) || slices.ContainsFunc(options, func(o console.Option) bool { return o.ID == name }) {
+			continue
+		}
+		label := name
+		if name == def {
+			label += " (the default)"
+		}
+		if h.SpeaksACP() {
+			label += " · over ACP, in one session"
+		} else {
+			label += " · one run per message"
+		}
+		options = append(options, console.Option{ID: name, Label: label})
+	}
+	switch {
+	case len(options) == 0:
+		if _, err := exec.LookPath(defH.Command); err != nil {
+			return "", config.Harness{}, fmt.Errorf("the default harness %s is not installed, so it cannot hold this conversation; install it with: install %s, or edit the config yourself with: config %s", def, def, manualFlag)
+		}
+		return "", config.Harness{}, fmt.Errorf("the default harness %s has no ask_args, so it cannot hold this conversation; edit the config yourself with: config %s", def, manualFlag)
+	case len(options) == 1:
+		return options[0].ID, cfg.Harnesses[options[0].ID], nil
+	}
+	name, ok := e.ui.Pick("Which harness should set up the config with you?", options)
+	if !ok {
+		fmt.Fprintln(e.out, "Setup cancelled. The config is unchanged.")
+		return "", config.Harness{}, nil
+	}
+	return name, cfg.Harnesses[name], nil
+}
+
+// configTalker returns how to get the harness's next message in the setup
+// conversation, given the conversation so far, and how to end it. A
+// harness that speaks ACP holds it in one session and is sent only what is
+// new; any other is run once per message and shown all of it.
+func (e *env) configTalker(ctx context.Context, name string, h config.Harness, base string) (func(context.Context, []string) (string, error), func(), error) {
+	if !h.SpeaksACP() {
+		return func(ctx context.Context, turns []string) (string, error) {
+			actx, cancel := context.WithTimeout(ctx, askTimeout)
+			defer cancel()
+			var reply, errOut bytes.Buffer
+			if err := harness.Ask(actx, h, e.environ, e.root, base+conversation(turns), &reply, &errOut); err != nil {
+				if ctx.Err() != nil {
+					return "", ctx.Err()
+				}
+				// A harness run this way prints its reason as its answer.
+				return "", couldNotAnswer(name, h, err, errOut.String()+"\n"+reply.String())
+			}
+			return reply.String(), nil
+		}, func() {}, nil
+	}
+	t, err := e.startACPTalk(ctx, h)
+	if err != nil {
+		return nil, nil, fmt.Errorf("%s over ACP: %w", name, err)
+	}
+	sent := 0
+	return func(ctx context.Context, turns []string) (string, error) {
+		text := base + acpTalkNote + conversation(turns)
+		if sent > 0 {
+			// Its own messages it has already; the rest is news to it.
+			var news []string
+			for _, turn := range turns[sent:] {
+				if !strings.HasPrefix(turn, "You: ") {
+					news = append(news, turn)
+				}
+			}
+			text = strings.Join(news, "\n\n") + "\n\nSend your next message.\n"
+		}
+		sent = len(turns)
+		reply, err := t.say(ctx, text)
+		if err != nil && ctx.Err() == nil {
+			err = fmt.Errorf("%s over ACP: %w", name, err)
+		}
+		return reply, err
+	}, t.close, nil
+}
+
+// acpTalkNote corrects, for a harness in one ACP session, what the guide
+// says about seeing the whole conversation each time.
+const acpTalkNote = "This conversation is one session: after this message you are sent only what is new, " +
+	"so remember what was said. Read the project only with your tools for reading files; do not run commands, which H2H refuses here.\n"
 
 // installedHarnesses says which of the configured harnesses are on PATH,
 // so the conversation does not hand a domain to one that cannot start.

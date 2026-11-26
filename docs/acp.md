@@ -32,6 +32,7 @@ This opens the usual full-screen console, with its tabs, colours and dialogs, an
 | `/model`, `/mode` | Shows the setting and its values; with a value, changes it for the session |
 | `/clear` | Ends the ACP session; the next message starts a new one |
 | `/acp off` | Back to the default harness, one run per message |
+| `/config` | Asks which harness should set the config up with you, the default first. One with `acp_command` holds the conversation over ACP, in one session |
 | Every other command | As usual: `/map`, `/ps`, `/start`, the tabs and the rest |
 
 The harness can run H2H's commands itself: `ps`, `map`, `start`, `ask`, `land`, `stop`, `rm`, `logs`, `sessions`, `doctor` and `install`, the same ones the console's default harness may run. Each one it runs is shown in the transcript as `> /start docs`, followed by what it printed. `start`, `stop`, `rm` and `install` ask you first in the console's dialog, as they do for the default harness.
@@ -81,6 +82,7 @@ On OpenCode 2.4.1, in a scratch repository, with its free model `opencode/big-pi
 | No rule | `echo hi > hello.txt` was put to the user, allowed with `y`, and ran |
 | H2H's commands as tools | Asked to run `ps`, then `map`, then to start a domain, OpenCode called the three tools through H2H's MCP server. `ps` and `map` printed in the transcript, `start` asked first, and when that was declined OpenCode said so in its answer |
 | The full-screen console | Opened by `h2h acp opencode` in a pseudo-terminal: the header showed `· ACP`, `/model` started OpenCode and listed its models, and `/exit` closed it |
+| `/config` over ACP | With OpenCode as the only candidate, `/config` held the setup conversation in one ACP session: it asked what to change, then a follow-up that remembered the answer, and on `/done` sent a valid config with the new domain. Declining to apply it left `h2h.toml` unchanged |
 | A refusal | **OpenCode ended its turn with `cancelled`** on the refusal, so later steps of the request did not run. ACP's answer to a permission request has no message for the model. H2H now sends a request of its own that says what was refused and why, as the hooks' deny message does. OpenCode then carried on with the rest and said in its answer that the removal was not allowed |
 
 The client is also tested against a stand-in agent (`internal/acp/acp_test.go`): a turn with a permission allowed and refused, cancelling while a question is open, and changing a setting.
@@ -89,7 +91,7 @@ Not checked: Ctrl-C on a real turn, a long session, a tool call that takes longe
 
 ### Seen along the way
 
-- **OpenCode sends its reasoning as ordinary message text,** not as thought chunks, so it shows as part of the answer.
+- **OpenCode keeps its reasoning apart** as thought chunks (`agent_thought_chunk`), and only the answer as message chunks. The console draws thoughts dimmed, and `/config` reads only the answer. An earlier version of this page said otherwise; that came from a probe that printed both kinds under the same five letters.
 - **OpenCode calls MCP tools through a tool of its own,** shown with the title "execute", so the transcript shows "execute" where H2H's command runs. The command itself follows it, as `> /ps`.
 - **A request carries the tool's raw input,** such as the command, but the title can change while the call runs: it is "shell" when pending and the command once it starts.
 

@@ -61,6 +61,22 @@ func (u *scriptedUI) Choose(question string, options []console.Option) ([]string
 	return u.pick(options)
 }
 
+// Pick takes what pick takes first, or with no pick, the first option.
+func (u *scriptedUI) Pick(question string, options []console.Option) (string, bool) {
+	u.question = question
+	for _, o := range options {
+		u.labels = append(u.labels, o.Label)
+	}
+	if u.pick == nil {
+		return options[0].ID, true
+	}
+	ids, ok := u.pick(options)
+	if !ok || len(ids) == 0 {
+		return "", false
+	}
+	return ids[0], true
+}
+
 func takeAll(options []console.Option) ([]string, bool) {
 	var ids []string
 	for _, o := range options {

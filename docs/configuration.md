@@ -91,9 +91,11 @@ Answering no does not end the setup. In the conversation, the box opens again an
 
 ### The conversation
 
-`/config` opens a box over the console page. It opens on a picture of the setup as it is now, so there is no description to read: the map, with each domain's owner and sub-agents in its box, and under it a table with one row per domain (owner, sub-agents, files, what it starts after). Under the picture it says how to reply.
+`/config` first asks which harness should hold the conversation, when more than one can: those that are installed and have `ask_args` or, on the `demo/acp` branch, `acp_command`. The default harness is first and has the focus, so Enter keeps it. Each is labelled with how it would talk: one run per message, or over ACP in one session. With one candidate nothing is asked.
 
-The default harness then asks one question at a time. It does not explain H2H or list the setup again, because the picture has done that. The user answers in plain words, over several lines if they like, and can ask for a suggestion.
+It then opens a box over the console page. It opens on a picture of the setup as it is now, so there is no description to read: the map, with each domain's owner and sub-agents in its box, and under it a table with one row per domain (owner, sub-agents, files, what it starts after). Under the picture it says how to reply.
+
+The harness then asks one question at a time. It does not explain H2H or list the setup again, because the picture has done that. The user answers in plain words, over several lines if they like, and can ask for a suggestion.
 
 Finishing is not left to how the harness reads a "yes" or an "ok":
 
@@ -127,13 +129,14 @@ flowchart TD
 
 How it is built:
 
-- **Each turn is one read-only run of the harness,** through its `ask_args`, given what H2H is for, the config as it stands, which harnesses are installed, and the conversation so far. The comments in the config are the schema the harness works from. It may read the project to suggest domains, and changes nothing.
+- **Over ACP** (the `demo/acp` branch), the conversation is one session of the harness: the first message carries everything below, and each later one only what is new, since the session remembers the rest. Only the text of its answers is read. Every permission it asks for is refused, since the conversation only reads the project; when a refusal ends its turn, H2H tells it to read with its reading tools only and to carry on. See [acp.md](acp.md).
+- **Otherwise each turn is one read-only run of the harness,** through its `ask_args`, given what H2H is for, the config as it stands, which harnesses are installed, and the conversation so far. The comments in the config are the schema the harness works from. It may read the project to suggest domains, and changes nothing.
 - **It is not the harness's own interface in a box.** Showing that would need a terminal emulator inside the console. Running one turn at a time also makes the conversation work the same on every harness that has `ask_args`, and lets H2H tell exactly when the file has arrived: the harness puts a marker line before it.
 - **A config that does not validate is sent back** to the harness with the reason, up to twice, and the user is told.
 - **Leaving the box,** with Esc, cancels the setup and leaves the config as it was.
 - **Without the console,** from the shell or a pipe, the same conversation is held as lines.
 
-Each turn costs one answer from the default harness, and takes as long as that harness takes to start and reply.
+Each turn costs one answer from the harness. Run once per message, it takes as long as that harness takes to start and reply; over ACP the harness is started once.
 
 ## Why config as code
 
