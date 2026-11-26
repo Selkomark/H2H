@@ -46,6 +46,9 @@ type env struct {
 	heeded  *heeded
 	environ []string
 	st      styles
+	// link is the console's conversation over ACP, a demo; see acp.go.
+	// It is nil for a command run from the shell.
+	link *acpLink
 }
 
 // shellUI serves a command run from the shell or from piped input, where
@@ -204,7 +207,9 @@ func commands() []command {
 		{"land", "[id]", "Bring a harness's work from its workspace onto the project's branch", (*env).land},
 		{"map", "", "Draw the domains and the flow of work between them", (*env).mapCmd},
 		{"ask", "<id | harness | domain> <question>", "Hand a request to a running harness and wait for its report", (*env).askHarness},
-		{"acp", "[harness]", "Demo: drive a harness over ACP, with H2H drawing its work and answering for permissions", (*env).acpCmd},
+		{"acp", "[harness | off]", "Demo: talk to a harness over ACP; it can run H2H's commands as tools", (*env).acpCmd},
+		{"model", "[model]", "Demo, with ACP: show or change the model of the session", acpOption("model")},
+		{"mode", "[mode]", "Demo, with ACP: show or change the mode of the session", acpOption("mode")},
 		{"sessions", "[rm <session> | rm all]", "List the saved console sessions, or remove them", (*env).sessions},
 		{"resume", "[session]", "In the console, switch to a saved session", (*env).resume},
 		{"cls", "", "In the console, empty the page and carry on in the same session and conversation", (*env).cls},
@@ -355,6 +360,10 @@ func (e *env) console(resume bool, resumeID string) error {
 		}
 		return e.script()
 	}
+	if e.link == nil {
+		e.link = &acpLink{}
+	}
+	defer e.link.close()
 	e.here = &openSession{root: e.root, current: newConsoleSession(e.root, time.Now())}
 	e.conv = e.here
 	e.heeded = &heeded{} // the console tells the user of a harness that waits
@@ -382,6 +391,12 @@ func (e *env) console(resume bool, resumeID string) error {
 	if restore != nil && cfgErr == nil {
 		intro = e.resumedNote(e.here.current)
 	}
+	title := e.st.gradient("H2H") + " " + e.st.dim.Render(Version)
+	if e.link.on() {
+		intro = "Text you type goes to " + e.st.accent.Render(e.link.want) + " over ACP, a demo. It can run H2H's commands as tools.\n" +
+			e.st.dim.Render("/model and /mode change its session, Ctrl-C stops a turn, /acp off goes back to the default harness.") + "\n\n"
+		title += e.st.dim.Render(" · ACP")
+	}
 
 	suggestions := []console.Suggestion{}
 	for _, c := range commands() {
@@ -393,7 +408,7 @@ func (e *env) console(resume bool, resumeID string) error {
 		In:       e.in,
 		Out:      e.tty,
 		Theme:    e.theme(),
-		Title:    e.st.gradient("H2H") + " " + e.st.dim.Render(Version),
+		Title:    title,
 		Path:     tildePath(e.root, os.Getenv("HOME")),
 		Intro:    intro,
 		Restore:  restore,
@@ -446,6 +461,10 @@ func (e *env) console(resume bool, resumeID string) error {
 // A command that asks a question reads its answer from the next line.
 func (e *env) script() error {
 	e.conv = &scriptTalk{}
+	if e.link == nil {
+		e.link = &acpLink{}
+	}
+	defer e.link.close()
 	for {
 		text, ok := readLine(e.in)
 		if !ok {
@@ -475,6 +494,8 @@ func (e *env) line(ctx context.Context, line string) (quit bool) {
 			fields = []string{"help"}
 		}
 		err = e.dispatch(ctx, fields[0], fields[1:])
+	case e.link.on():
+		err = e.acpConverse(ctx, line)
 	default:
 		err = e.converse(ctx, line)
 	}

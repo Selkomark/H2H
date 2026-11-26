@@ -1,280 +1,450 @@
 package cli
 
 import (
-	"bufio"
 	"context"
 	"errors"
 	"fmt"
 	"io"
-	"os"
-	"os/signal"
 	"strings"
 	"sync"
 
 	"github.com/Selkomark/H2H/internal/acp"
 	"github.com/Selkomark/H2H/internal/config"
 	"github.com/Selkomark/H2H/internal/harness"
+	"github.com/Selkomark/H2H/internal/mcp"
 	"github.com/Selkomark/H2H/internal/policy"
-	"github.com/muesli/cancelreader"
+	"github.com/charmbracelet/lipgloss"
 )
 
-// acpCmd drives a harness over the Agent Client Protocol, in place of its
-// terminal: H2H draws what the harness does and answers what it asks
-// permission for, from the project's rules or by asking the user. It is a
-// demo of driving harnesses that way; see docs/acp.md.
+// The ACP demo: the console's conversation runs over the Agent Client
+// Protocol instead of a run of the default harness per message. The
+// harness stays running for the console's lifetime, its work is drawn in
+// the transcript as it arrives, its permission questions are answered from
+// the rules or in the console's dialog, and H2H's commands are offered to
+// it as tools through an MCP server of H2H's own. See docs/acp.md.
+
+// acpRules are what a harness driven over ACP is told at the start of a
+// session: the same as the default harness in the console, except that it
+// runs H2H's commands as tools.
+const acpRules = assistantAbout +
+	"You can run H2H's commands yourself, with the tools of the MCP server named h2h: each tool is one of the commands below, " +
+	"and takes the command's arguments as one string, as they would be typed after it. " +
+	"Say in a few words what you are about to do before you use them, and do not claim a result before you have seen it.\n\n" +
+	assistantCommandList + assistantPolicy
+
+// acpLink is the console's connection to a harness over ACP. want is the
+// harness the user chose with /acp; the agent, its session and the tools
+// are started when they are first needed, and stay until the console
+// closes, the user leaves ACP or starts a new conversation.
+type acpLink struct {
+	// starting is held while the agent starts. mu is never held while
+	// waiting for the agent, since its messages are read by a goroutine
+	// that needs mu to find the turn they belong to.
+	starting sync.Mutex
+	mu       sync.Mutex
+	want     string // "" while ACP is off
+	name     string // the harness running
+	client   *acp.Client
+	session  acp.Session
+	tools    *mcp.Server
+	stop     context.CancelFunc
+	wiring   string // the config as the session was last told it
+	turn     *acpTurn
+}
+
+func (l *acpLink) on() bool {
+	if l == nil {
+		return false
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.want != ""
+}
+
+func (l *acpLink) current() *acpTurn {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.turn
+}
+
+// close stops the agent and the tools. The choice of harness stays, so
+// the next message starts a new session with it.
+func (l *acpLink) close() {
+	if l == nil {
+		return
+	}
+	l.mu.Lock()
+	client, tools, stop := l.client, l.tools, l.stop
+	l.client, l.tools, l.stop, l.wiring, l.name = nil, nil, nil, "", ""
+	l.mu.Unlock()
+	if client != nil {
+		client.Close()
+		tools.Close()
+		stop()
+	}
+}
+
+// acpCmd chooses the harness the console talks to over ACP, or with "off"
+// goes back to the default harness. From the shell it opens the console
+// talking to that harness.
 func (e *env) acpCmd(ctx context.Context, args []string) error {
 	if len(args) > 1 {
-		return errors.New("usage: acp [harness]")
+		return errors.New("usage: acp [harness | off]")
+	}
+	if e.link == nil {
+		// From the shell: the console is opened with ACP on.
+		name, err := e.acpHarness(args)
+		if err != nil {
+			return err
+		}
+		e.link = &acpLink{want: name}
+		return e.console(false, "")
+	}
+	if len(args) == 1 && args[0] == "off" {
+		e.link.close()
+		e.link.mu.Lock()
+		e.link.want = ""
+		e.link.mu.Unlock()
+		fmt.Fprintln(e.out, "ACP is off. Text you type goes to the default harness again, one run per message.")
+		return nil
+	}
+	name, err := e.acpHarness(args)
+	if err != nil {
+		return err
+	}
+	e.link.mu.Lock()
+	same := e.link.want == name
+	e.link.mu.Unlock()
+	if !same {
+		e.link.close()
+		e.link.mu.Lock()
+		e.link.want = name
+		e.link.mu.Unlock()
+	}
+	if err := e.acpStart(ctx); err != nil {
+		return err
+	}
+	fmt.Fprintln(e.out, "Text you type now goes to "+e.st.accent.Render(name)+" over ACP. "+e.st.dim.Render("/acp off goes back."))
+	return nil
+}
+
+// acpHarness is the harness named, or with none, the default harness if
+// it speaks ACP, or else the first that does.
+func (e *env) acpHarness(args []string) (string, error) {
+	cfg, err := config.Load(e.root)
+	if err != nil {
+		return "", err
+	}
+	if len(args) == 1 {
+		name, h, err := cfg.Lookup(args[0])
+		if err != nil {
+			return "", err
+		}
+		if !h.SpeaksACP() {
+			return "", fmt.Errorf("%s has no acp_command, so it cannot be driven over ACP", name)
+		}
+		return name, nil
+	}
+	if name, h, err := cfg.Lookup(""); err == nil && h.SpeaksACP() {
+		return name, nil
+	}
+	for _, name := range cfg.Names() {
+		if cfg.Harnesses[name].SpeaksACP() {
+			return name, nil
+		}
+	}
+	return "", errors.New("no harness in the config has acp_command")
+}
+
+// acpStart starts the chosen harness, its session and H2H's tools, if
+// they are not running, and says what it started.
+func (e *env) acpStart(ctx context.Context) error {
+	l := e.link
+	l.starting.Lock()
+	defer l.starting.Unlock()
+	l.mu.Lock()
+	running, want := l.client != nil, l.want
+	l.mu.Unlock()
+	if running {
+		return nil
 	}
 	cfg, err := config.Load(e.root)
 	if err != nil {
 		return err
 	}
-	var name string
-	if len(args) == 1 {
-		name = args[0]
-	} else {
-		// With no harness named, the default one if it speaks ACP, or
-		// else the first that does.
-		if n, h, err := cfg.Lookup(""); err == nil && h.SpeaksACP() {
-			name = n
-		}
-		for _, n := range cfg.Names() {
-			if name == "" && cfg.Harnesses[n].SpeaksACP() {
-				name = n
-			}
-		}
-		if name == "" {
-			return errors.New("no harness in the config has acp_command")
-		}
-	}
-	name, h, err := cfg.Lookup(name)
+	name, h, err := cfg.Lookup(want)
 	if err != nil {
 		return err
 	}
-	if !h.SpeaksACP() {
-		return fmt.Errorf("%s has no acp_command, so it cannot be driven over ACP", name)
+	tools, err := mcp.Start("h2h", Version, e.acpTools(l))
+	if err != nil {
+		return fmt.Errorf("could not serve H2H's tools: %w", err)
 	}
-	return e.ui.Foreground(func() error {
-		out := e.tty
-		if out == nil {
-			out = os.Stdout
-		}
-		return e.drive(ctx, name, h, cfg.Permissions.Rules(), e.in, out)
+	fmt.Fprintln(e.out, e.st.dim.Render("Starting "+name+" over ACP..."))
+	// The agent outlives the message that started it.
+	actx, stop := context.WithCancel(context.Background())
+	client, err := acp.Start(actx, h.AcpCommand, harness.Env(h, e.environ, h.AcpEnv...), e.root, io.Discard, acp.Handlers{
+		Update: func(u acp.Update) {
+			if t := l.current(); t != nil {
+				t.update(u)
+			}
+		},
+		Permission: func(p acp.Permission) string {
+			if t := l.current(); t != nil {
+				return t.permission(p)
+			}
+			return "" // nobody is there to answer: refused
+		},
 	})
-}
-
-// acpView draws one ACP session and holds what a turn needs: the lines the
-// user types and the permission answers they give while it runs.
-type acpView struct {
-	e     *env
-	name  string
-	rules policy.Rules
-	out   io.Writer
-	lines <-chan string
-
-	mu        sync.Mutex // guards what follows, written from the agent's messages
-	midLine   bool       // the last text written did not end a line
-	thinking  bool       // the last text written was a thought
-	titles    map[string]string
-	used      int
-	size      int
-	cost      float64
-	currency  string
-	turn      context.Context
-	stopAsked bool
-	// refused lists what was refused in this turn, each with the
-	// message the model would be given, since an ACP answer carries none.
-	refused []string
-}
-
-func (e *env) drive(ctx context.Context, name string, h config.Harness, rules policy.Rules, in io.Reader, out io.Writer) error {
-	// The reader is cancelled on the way out, so that it does not keep
-	// taking the console's input after the demo returns to it.
-	if r, err := cancelreader.NewReader(in); err == nil {
-		defer r.Cancel()
-		in = r
-	}
-	lines := make(chan string)
-	go func() {
-		sc := bufio.NewScanner(in)
-		for sc.Scan() {
-			lines <- sc.Text()
-		}
-		close(lines)
-	}()
-	v := &acpView{e: e, name: name, rules: rules, out: out, lines: lines, titles: map[string]string{}}
-
-	ctx, stop := context.WithCancel(ctx)
-	defer stop()
-	env := harness.Env(h, e.environ, h.AcpEnv...)
-	fmt.Fprintf(out, "Starting %s over ACP...\n", name)
-	client, err := acp.Start(ctx, h.AcpCommand, env, e.root, io.Discard, acp.Handlers{Update: v.update, Permission: v.permission})
 	if err != nil {
+		stop()
+		tools.Close()
 		return err
 	}
-	defer client.Close()
-	sess, err := client.NewSession(ctx, e.root)
+	session, err := client.NewSession(ctx, e.root, acp.MCPServer{Name: "h2h", URL: tools.URL(), Token: tools.Token()})
 	if err != nil {
+		client.Close()
+		stop()
+		tools.Close()
 		return err
 	}
-	fmt.Fprintln(out, e.st.title.Render(client.Agent)+e.st.dim.Render(" over ACP, session "+sess.ID+", in "+e.root))
-	v.showOptions(sess.Options)
-	fmt.Fprintln(out, e.st.dim.Render("Type a request. /model, /mode and /options change the session's settings; /quit leaves. Ctrl-C stops a turn."))
+	l.mu.Lock()
+	l.name, l.client, l.session, l.tools, l.stop = name, client, session, tools, stop
+	l.mu.Unlock()
+	fmt.Fprintln(e.out, e.st.title.Render(client.Agent)+e.st.dim.Render(" over ACP · session "+session.ID+" · H2H's commands offered as tools"))
+	e.showOptions(session.Options)
+	return nil
+}
 
-	interrupts := make(chan os.Signal, 1)
-	signal.Notify(interrupts, os.Interrupt)
-	defer signal.Stop(interrupts)
+// acpTools are H2H's commands as the harness may run them: those the
+// console's default harness may run, through the same code, so the user is
+// asked first where it would be.
+func (e *env) acpTools(l *acpLink) []mcp.Tool {
+	var tools []mcp.Tool
+	for _, c := range commands() {
+		if _, ok := assistantCommands[c.name]; !ok {
+			continue
+		}
+		name := c.name
+		tools = append(tools, mcp.Tool{
+			Name:        name,
+			Description: c.help + ". Arguments: " + c.usage,
+			Param:       "arguments",
+			ParamHelp:   "What follows the command, as typed: " + c.usage,
+			Call: func(ctx context.Context, input string) (string, bool) {
+				t := l.current()
+				if t == nil {
+					return "H2H runs a command only while it is answering the user.", true
+				}
+				call := append([]string{name}, strings.Fields(input)...)
+				t.pause()
+				return t.e.runFor(t.ctx, t.name, [][]string{call}), false
+			},
+		})
+	}
+	return tools
+}
 
-	for {
-		fmt.Fprint(out, "\n"+e.st.accent.Render(name+" › "))
-		var line string
-		select {
-		case l, ok := <-lines:
-			if !ok {
-				fmt.Fprintln(out)
-				return nil
-			}
-			line = strings.TrimSpace(l)
-		case <-interrupts:
-			fmt.Fprintln(out)
-			return nil
+// showOptions lists the settings the session offers, such as its model.
+func (e *env) showOptions(opts []acp.ConfigOption) {
+	for _, o := range opts {
+		fmt.Fprintf(e.out, "  %s %s %s\n", e.st.accent.Render(fmt.Sprintf("/%-6s", o.ID)), o.Current, e.st.dim.Render("of "+strings.Join(o.Values, ", ")))
+	}
+}
+
+// acpOption shows or changes one setting of the ACP session, for /model
+// and /mode.
+func acpOption(id string) func(*env, context.Context, []string) error {
+	return func(e *env, ctx context.Context, args []string) error {
+		if !e.link.on() {
+			return fmt.Errorf("%s changes the session of a harness driven over ACP; start one with /acp", id)
 		}
-		switch {
-		case line == "":
-			continue
-		case line == "/quit" || line == "/exit":
-			return nil
-		case line == "/options":
-			// Shown as they were last reported; setting one shows them anew.
-			v.showOptions(sess.Options)
-			continue
-		case strings.HasPrefix(line, "/model") || strings.HasPrefix(line, "/mode"):
-			id, value, _ := strings.Cut(strings.TrimPrefix(line, "/"), " ")
-			value = strings.TrimSpace(value)
-			if value == "" {
-				v.showOptions(only(sess.Options, id))
-				continue
-			}
-			opts, err := client.SetOption(ctx, sess.ID, id, value)
-			if err != nil {
-				fmt.Fprintln(out, e.st.bad.Render("Not changed: "+err.Error()))
-				continue
-			}
-			sess.Options = opts
-			v.showOptions(only(opts, id))
-			continue
-		case strings.HasPrefix(line, "/"):
-			fmt.Fprintln(out, e.st.dim.Render("H2H knows /model, /mode, /options and /quit here. Anything else is sent to "+name+" as it is."))
-		}
-		if err := v.run(ctx, client, sess.ID, line, interrupts); err != nil {
+		if err := e.acpStart(ctx); err != nil {
 			return err
 		}
+		l := e.link
+		l.mu.Lock()
+		client, session := l.client, l.session
+		l.mu.Unlock()
+		if len(args) == 0 {
+			e.showOptions(only(session.Options, id))
+			return nil
+		}
+		opts, err := client.SetOption(ctx, session.ID, id, strings.Join(args, " "))
+		if err != nil {
+			return fmt.Errorf("%s was not changed: %w", id, err)
+		}
+		l.mu.Lock()
+		l.session.Options = opts
+		l.mu.Unlock()
+		e.showOptions(only(opts, id))
+		return nil
 	}
 }
 
-// run sends one request and draws the turn until it ends. Ctrl-C asks the
-// agent to stop it.
-func (v *acpView) run(ctx context.Context, client *acp.Client, session, text string, interrupts <-chan os.Signal) error {
-	turn, cancel := context.WithCancel(ctx)
-	defer cancel()
-	v.mu.Lock()
-	v.turn, v.stopAsked, v.midLine, v.refused = turn, false, false, nil
-	v.mu.Unlock()
+func only(opts []acp.ConfigOption, id string) []acp.ConfigOption {
+	for _, o := range opts {
+		if o.ID == id {
+			return []acp.ConfigOption{o}
+		}
+	}
+	return nil
+}
 
+// acpConverse sends text typed into the console to the harness over ACP,
+// and draws its turn in the transcript. Ctrl-C stops the turn.
+func (e *env) acpConverse(ctx context.Context, text string) error {
+	if err := e.acpStart(ctx); err != nil {
+		return err
+	}
+	l := e.link
+	cfg, err := config.Load(e.root)
+	if err != nil {
+		return err
+	}
+	l.mu.Lock()
+	busy := l.turn != nil
+	known := talk{ID: l.session.ID, Wiring: l.wiring}
+	if l.wiring == "" {
+		known = talk{} // the session has not been told anything yet
+	}
+	l.mu.Unlock()
+	if busy {
+		return fmt.Errorf("%s is still answering; wait for it, or stop it with Ctrl-C", l.name)
+	}
+	prompt, wiring, err := e.turnPrompt(cfg, acpRules, known, text, nil, "", 1)
+	if err != nil {
+		return err
+	}
+	l.mu.Lock()
+	l.wiring = wiring
+	l.mu.Unlock()
+	return e.acpTurn(ctx, prompt)
+}
+
+// acpTurn sends one prompt and draws the turn until it ends.
+func (e *env) acpTurn(ctx context.Context, prompt string) error {
+	l := e.link
+	l.mu.Lock()
+	name, client, session := l.name, l.client, l.session.ID
+	t := &acpTurn{e: e, ctx: ctx, name: name, rules: policyRules(e.root), titles: map[string]string{}, stream: &streamWriter{out: e.out}}
+	l.turn = t
+	l.mu.Unlock()
+	defer func() {
+		l.mu.Lock()
+		l.turn = nil
+		l.mu.Unlock()
+	}()
+
+	fmt.Fprintln(e.out, e.st.dim.Render("Asking "+name+" over ACP..."))
 	type result struct {
 		reason string
 		err    error
 	}
 	done := make(chan result, 1)
 	go func() {
-		r, err := client.Prompt(ctx, session, text)
+		// Not ctx: Ctrl-C cancels the turn, and the answer to that is
+		// still to be read.
+		r, err := client.Prompt(context.Background(), session, prompt)
 		done <- result{r, err}
 	}()
-	for {
-		select {
-		case r := <-done:
-			v.endTurn(r.reason)
-			if r.err != nil {
-				return r.err
-			}
-			// An agent may end its turn when a tool is refused, and ACP has
-			// no way to tell it why. H2H then tells it in a request of its
-			// own, as a permission hook does in its answer, unless the user
-			// stopped the turn.
-			v.mu.Lock()
-			followUp := r.reason == "cancelled" && !v.stopAsked && len(v.refused) > 0
-			refused := v.refused
-			v.mu.Unlock()
-			if !followUp {
-				return nil
-			}
-			text = "H2H refused: " + strings.Join(refused, "; ") + ". Carry on with the rest of the request."
-			fmt.Fprintln(v.out, v.e.st.dim.Render("H2H tells "+v.name+" what was refused, and to carry on:"))
-			return v.run(ctx, client, session, text, interrupts)
-		case <-interrupts:
-			v.mu.Lock()
-			v.stopAsked = true
-			v.mu.Unlock()
-			cancel() // a permission question that is open is withdrawn
-			if err := client.Cancel(session); err != nil {
-				return err
-			}
-		}
+	var r result
+	select {
+	case r = <-done:
+	case <-ctx.Done():
+		t.mu.Lock()
+		t.stopAsked = true
+		t.mu.Unlock()
+		client.Cancel(session)
+		r = <-done
 	}
+	t.end(r.reason)
+	if r.err != nil {
+		// A harness that stopped is started again for the next message.
+		l.close()
+		return fmt.Errorf("%s over ACP: %w", name, r.err)
+	}
+	// An agent may end its turn when a tool is refused, and ACP has no way
+	// to tell it why. H2H then tells it in a prompt of its own, as a
+	// permission hook does in its answer, unless the user stopped the turn.
+	t.mu.Lock()
+	followUp := r.reason == "cancelled" && !t.stopAsked && len(t.refused) > 0
+	refused := t.refused
+	t.mu.Unlock()
+	if !followUp || ctx.Err() != nil {
+		return nil
+	}
+	fmt.Fprintln(e.out, e.st.dim.Render("H2H tells "+name+" what was refused, and to carry on."))
+	return e.acpTurn(ctx, "H2H refused: "+strings.Join(refused, "; ")+". Carry on with the rest of the request.")
 }
 
-func (v *acpView) endTurn(reason string) {
-	v.mu.Lock()
-	defer v.mu.Unlock()
-	v.newLine()
-	st := v.e.st
-	note := "turn ended: " + reason
-	if v.size > 0 {
-		note += fmt.Sprintf(" · context %s of %s tokens", kilo(v.used), kilo(v.size))
+func policyRules(root string) policy.Rules {
+	cfg, err := config.Load(root)
+	if err != nil {
+		return policy.Rules{} // nothing is allowed by rule
 	}
-	if v.currency != "" {
-		note += fmt.Sprintf(" · cost so far %.4f %s", v.cost, v.currency)
-	}
-	fmt.Fprintln(v.out, st.dim.Render(note))
+	return cfg.Permissions.Rules()
 }
 
-// update draws what the agent reports.
-func (v *acpView) update(u acp.Update) {
-	v.mu.Lock()
-	defer v.mu.Unlock()
-	st := v.e.st
+// acpTurn is one turn being drawn: what the agent sends arrives on the
+// goroutine that reads its messages, and is written to the line's
+// transcript.
+type acpTurn struct {
+	e      *env
+	ctx    context.Context
+	name   string
+	rules  policy.Rules
+	stream *streamWriter // the text of messages and thoughts, in batches
+
+	mu        sync.Mutex
+	midLine   bool // the text written last did not end its line
+	thinking  bool // the text written last was a thought
+	titles    map[string]string
+	used      int
+	size      int
+	cost      float64
+	currency  string
+	stopAsked bool
+	// refused lists what was refused, each with the message the model
+	// would have been given, since an ACP answer carries none.
+	refused []string
+}
+
+func (t *acpTurn) update(u acp.Update) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	st := t.e.st
 	switch u.Kind {
 	case "agent_message_chunk":
-		if v.thinking {
-			v.newLine()
-			v.thinking = false
+		if t.thinking {
+			t.breakLine()
+			t.thinking = false
 		}
-		v.write(u.Text, u.Text)
+		t.text(u.Text, lipgloss.NewStyle())
 	case "agent_thought_chunk":
-		if !v.thinking {
-			v.newLine()
-			v.thinking = true
+		if !t.thinking {
+			t.breakLine()
+			t.thinking = true
 		}
-		v.write(st.dim.Render(u.Text), u.Text)
+		t.text(u.Text, st.dim)
 	case "tool_call":
-		v.titles[u.ToolCallID] = u.Title
-		v.line(st.warn.Render("  ▸ ") + u.Title + st.dim.Render("  "+u.ToolKind+", "+u.Status))
+		t.titles[u.ToolCallID] = u.Title
+		t.line(st.warn.Render("  ▸ ") + u.Title + st.dim.Render("  "+u.ToolKind))
 	case "tool_call_update":
-		title := v.titles[u.ToolCallID]
+		title := t.titles[u.ToolCallID]
 		if u.Title != "" && u.Title != title {
 			title = u.Title
-			v.titles[u.ToolCallID] = title
-			v.line(st.warn.Render("  ▸ ") + title)
+			t.titles[u.ToolCallID] = title
+			t.line(st.warn.Render("  ▸ ") + title)
 		}
 		switch u.Status {
 		case "completed":
-			v.line(st.good.Render("  ✓ ") + st.dim.Render(title))
+			t.line(st.good.Render("  ✓ ") + st.dim.Render(title))
 		case "failed":
-			v.line(st.bad.Render("  ✗ ") + st.dim.Render(title))
+			t.line(st.bad.Render("  ✗ ") + st.dim.Render(title))
 		}
 	case "plan":
-		v.line(st.title.Render("  Plan"))
+		t.line(st.title.Render("  Plan"))
 		for _, p := range u.Plan {
 			mark := "○"
 			switch p.Status {
@@ -283,68 +453,43 @@ func (v *acpView) update(u acp.Update) {
 			case "completed":
 				mark = "●"
 			}
-			v.line("  " + mark + " " + p.Content)
+			t.line("  " + mark + " " + p.Content)
 		}
 	case "usage_update":
-		v.used, v.size, v.cost, v.currency = u.Used, u.Size, u.Cost, u.Currency
+		t.used, t.size, t.cost, t.currency = u.Used, u.Size, u.Cost, u.Currency
 	}
 }
 
 // permission answers the agent's question about a tool: from the
-// project's rules where one covers it, otherwise by asking the user. The
-// answer comes back to the agent as one of the options it offered.
-func (v *acpView) permission(p acp.Permission) string {
+// project's rules where one covers it, otherwise in the console's dialog.
+func (t *acpTurn) permission(p acp.Permission) string {
 	subject := p.Command
-	if subject == "" {
-		tool := strings.ToUpper(p.ToolKind[:min(1, len(p.ToolKind))]) + p.ToolKind[min(1, len(p.ToolKind)):]
-		subject = strings.TrimSpace(tool + " " + p.Path)
+	switch {
+	case subject != "":
+	case p.ToolKind == "edit" && p.Path != "":
+		subject = "Edit " + p.Path
+	default:
+		subject = p.Title
 	}
-	subject = portable(subject, v.e.root, v.e.root)
-
-	v.mu.Lock()
-	turn := v.turn
-	st := v.e.st
-	v.newLine()
-	v.mu.Unlock()
-
-	switch v.rules.Decide(subject) {
+	subject = portable(subject, t.e.root, t.e.root)
+	st := t.e.st
+	switch t.rules.Decide(subject) {
 	case policy.Allow:
-		fmt.Fprintln(v.out, st.good.Render("  allowed by rule: ")+subject)
+		t.say(st.good.Render("  allowed by rule: ") + subject)
 		return pick(p.Options, "allow_once")
 	case policy.Deny:
-		fmt.Fprintln(v.out, st.bad.Render("  refused by rule: ")+subject)
-		v.refuse(subject, deniedByRule)
+		t.say(st.bad.Render("  refused by rule: ") + subject)
+		t.refuse(subject, deniedByRule)
 		return pick(p.Options, "reject_once")
 	}
-	fmt.Fprintln(v.out, st.warn.Render("  "+v.name+" asks to: ")+subject)
-	fmt.Fprint(v.out, st.dim.Render("  y allow once · a allow for this session · n refuse › "))
-	for {
-		select {
-		case l, ok := <-v.lines:
-			if !ok {
-				return ""
-			}
-			switch strings.ToLower(strings.TrimSpace(l)) {
-			case "y", "yes":
-				return pick(p.Options, "allow_once")
-			case "a":
-				return pick(p.Options, "allow_always")
-			case "n", "no":
-				v.refuse(subject, deniedByUser)
-				return pick(p.Options, "reject_once")
-			}
-			fmt.Fprint(v.out, st.dim.Render("  y, a or n › "))
-		case <-turn.Done():
-			fmt.Fprintln(v.out)
-			return ""
-		}
+	t.pause()
+	if t.e.ui.Confirm(t.name + " asks to:\n  " + subject + "\nAllow it?") {
+		t.say(st.good.Render("  allowed by you: ") + subject)
+		return pick(p.Options, "allow_once")
 	}
-}
-
-func (v *acpView) refuse(subject, why string) {
-	v.mu.Lock()
-	defer v.mu.Unlock()
-	v.refused = append(v.refused, "`"+subject+"`. "+why)
+	t.say(st.bad.Render("  refused by you: ") + subject)
+	t.refuse(subject, deniedByUser)
+	return pick(p.Options, "reject_once")
 }
 
 // pick returns the ID of the first option of the kind, or "" if the agent
@@ -358,40 +503,69 @@ func pick(options []acp.Option, kind string) string {
 	return ""
 }
 
-func (v *acpView) showOptions(opts []acp.ConfigOption) {
-	for _, o := range opts {
-		fmt.Fprintf(v.out, "%s %s %s\n", v.e.st.accent.Render(fmt.Sprintf("/%-6s", o.ID)), o.Current, v.e.st.dim.Render("of "+strings.Join(o.Values, ", ")))
-	}
+func (t *acpTurn) refuse(subject, why string) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.refused = append(t.refused, "`"+subject+"`. "+why)
 }
 
-func only(opts []acp.ConfigOption, id string) []acp.ConfigOption {
-	for _, o := range opts {
-		if o.ID == id {
-			return []acp.ConfigOption{o}
-		}
-	}
-	return nil
+// pause ends the text so far, before something else is written to the
+// transcript, such as a dialog's question or a command H2H runs.
+func (t *acpTurn) pause() {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.breakLine()
 }
 
-// write, line and newLine draw text; the caller holds v.mu.
-func (v *acpView) write(shown, text string) {
-	if text == "" {
+func (t *acpTurn) say(s string) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.line(s)
+}
+
+func (t *acpTurn) end(reason string) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.breakLine()
+	note := "turn ended: " + reason
+	if t.size > 0 {
+		note += fmt.Sprintf(" · context %s of %s tokens", kilo(t.used), kilo(t.size))
+	}
+	if t.currency != "" {
+		note += fmt.Sprintf(" · cost so far %.4f %s", t.cost, t.currency)
+	}
+	fmt.Fprintln(t.e.out, t.e.st.dim.Render(note))
+}
+
+// text, line and breakLine write to the transcript; the caller holds t.mu.
+
+// text writes a piece of a message. Each line of it is styled by itself,
+// since a style given text of several lines pads them to one width.
+func (t *acpTurn) text(s string, style lipgloss.Style) {
+	if s == "" {
 		return
 	}
-	fmt.Fprint(v.out, shown)
-	v.midLine = !strings.HasSuffix(text, "\n")
+	parts := strings.Split(s, "\n")
+	for n, p := range parts {
+		if p != "" {
+			parts[n] = style.Render(p)
+		}
+	}
+	t.stream.Write([]byte(strings.Join(parts, "\n")))
+	t.midLine = !strings.HasSuffix(s, "\n")
 }
 
-func (v *acpView) line(s string) {
-	v.newLine()
-	fmt.Fprintln(v.out, s)
-	v.thinking = false
+func (t *acpTurn) line(s string) {
+	t.breakLine()
+	fmt.Fprintln(t.e.out, s)
+	t.thinking = false
 }
 
-func (v *acpView) newLine() {
-	if v.midLine {
-		fmt.Fprintln(v.out)
-		v.midLine = false
+func (t *acpTurn) breakLine() {
+	t.stream.flush()
+	if t.midLine {
+		fmt.Fprintln(t.e.out)
+		t.midLine = false
 	}
 }
 

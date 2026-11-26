@@ -99,10 +99,11 @@ default_harness = "claude"
 #   acp_command, acp_env
 #             a demo, on the demo/acp branch: the whole command, program
 #             first, that runs the harness as an Agent Client Protocol
-#             agent, and NAME=value entries set for it. "/acp" then drives
-#             the harness over ACP rather than through its terminal, and
-#             H2H draws what it does and answers what it asks permission
-#             for. A harness without acp_command is not driven over ACP
+#             agent, and NAME=value entries set for it. "/acp" then has the
+#             console talk to the harness over ACP: H2H draws what it does,
+#             answers what it asks permission for, and offers it H2H's
+#             commands as tools. A harness without acp_command is not
+#             driven over ACP
 
 [harness.claude]
 command = "claude"

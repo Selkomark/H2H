@@ -186,13 +186,28 @@ func Start(ctx context.Context, argv, env []string, dir string, stderr io.Writer
 	return c, nil
 }
 
-// NewSession starts a conversation in dir.
-func (c *Client) NewSession(ctx context.Context, dir string) (Session, error) {
+// MCPServer is an MCP server, reached over HTTP, whose tools the agent is
+// given for a session.
+type MCPServer struct {
+	Name  string
+	URL   string
+	Token string // sent as a bearer token
+}
+
+// NewSession starts a conversation in dir, with the tools of servers.
+func (c *Client) NewSession(ctx context.Context, dir string, servers ...MCPServer) (Session, error) {
 	var res struct {
 		SessionID     string          `json:"sessionId"`
 		ConfigOptions json.RawMessage `json:"configOptions"`
 	}
-	if err := c.call(ctx, "session/new", map[string]any{"cwd": dir, "mcpServers": []any{}}, &res); err != nil {
+	list := []any{}
+	for _, s := range servers {
+		list = append(list, map[string]any{
+			"type": "http", "name": s.Name, "url": s.URL,
+			"headers": []any{map[string]string{"name": "Authorization", "value": "Bearer " + s.Token}},
+		})
+	}
+	if err := c.call(ctx, "session/new", map[string]any{"cwd": dir, "mcpServers": list}, &res); err != nil {
 		return Session{}, err
 	}
 	return Session{ID: res.SessionID, Options: configOptions(res.ConfigOptions)}, nil

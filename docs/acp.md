@@ -23,19 +23,22 @@ cd <a scratch git repository>
 <path to H2H>/bin/h2h acp opencode
 ```
 
-Or `/acp` in the console, which hands it the terminal as `attach` does and takes it back on `/quit`.
+This opens the usual full-screen console, with its tabs, colours and dialogs, and `· ACP` in the header. Text you type goes to OpenCode over ACP, rather than to a fresh run of the default harness per message. In a console opened with plain `h2h`, `/acp [harness]` switches to ACP the same way.
 
 | Typed | Does |
 |---|---|
-| A request | Sent to the harness. Its messages, thoughts and tool calls are drawn as they come |
-| Ctrl-C | Stops the turn (`session/cancel`). At the prompt, leaves |
+| A request | Sent to the harness. Its messages, thoughts and tool calls are drawn in the transcript as they come |
+| Ctrl-C | Stops the turn (`session/cancel`) |
 | `/model`, `/mode` | Shows the setting and its values; with a value, changes it for the session |
-| `/options` | Shows every setting the harness offers |
-| `/quit` | Leaves. The harness stops |
+| `/clear` | Ends the ACP session; the next message starts a new one |
+| `/acp off` | Back to the default harness, one run per message |
+| Every other command | As usual: `/map`, `/ps`, `/start`, the tabs and the rest |
 
-When the harness asks permission for a tool, H2H answers from the `[permissions]` rules of `h2h.toml`, as for the hooks in [permissions.md](permissions.md). Where no rule covers it, H2H asks on the next line: `y` allow once, `a` allow for the session, `n` refuse.
+The harness can run H2H's commands itself: `ps`, `map`, `start`, `ask`, `land`, `stop`, `rm`, `logs`, `sessions`, `doctor` and `install`, the same ones the console's default harness may run. Each one it runs is shown in the transcript as `> /start docs`, followed by what it printed. `start`, `stop`, `rm` and `install` ask you first in the console's dialog, as they do for the default harness.
 
-**The demo works in the project's folder itself, not in a workspace of its own.** What the harness changes is changed in the project. Use a scratch repository.
+When the harness asks permission for one of its own tools, H2H answers from the `[permissions]` rules of `h2h.toml`, as for the hooks in [permissions.md](permissions.md). Where no rule covers it, the console's dialog asks you.
+
+**The harness works in the project's folder itself, not in a workspace of its own.** What it changes is changed in the project. Use a scratch repository.
 
 ## How it works
 
@@ -46,18 +49,21 @@ flowchart LR
     AGENT -->|"session/update:<br/>text, tool calls, usage"| H2H
     AGENT -->|"session/request_permission"| H2H
     H2H -->|"rules or your answer"| AGENT
-    H2H --> VIEW(["Drawn in<br/>the terminal"])
+    AGENT -->|"MCP tools/call:<br/>start, ps, map, ask..."| MCP["H2H's MCP server<br/>on localhost"]
+    MCP --> CMDS["H2H's commands,<br/>as the console runs them"]
+    H2H --> VIEW(["Drawn in<br/>the console"])
 
     classDef entry fill:#1f2937,stroke:#9ca3af,stroke-width:1.5px,color:#ffffff
     classDef harness fill:#dbeafe,stroke:#2563eb,stroke-width:1.5px,color:#111827
     classDef code fill:#dcfce7,stroke:#16a34a,stroke-width:1.5px,color:#111827
     class USER,VIEW entry
     class AGENT harness
-    class H2H code
+    class H2H,MCP,CMDS code
 ```
 
 - **`internal/acp`** is the client: start the agent, `initialize`, `session/new`, `session/prompt`, `session/cancel`, `session/set_config_option`, and answering `session/request_permission`. It offers the agent no file system or terminal of its own, so the agent uses its own tools. It is written from the protocol's messages as observed, with no ACP library.
-- **`internal/cli/acp.go`** is the `acp` command: it draws the session and applies the permission rules.
+- **`internal/mcp`** serves tools over MCP's HTTP transport, on a port of the loopback interface chosen by the system. A client must send a token made for that console as a bearer token. H2H passes the server's address and token to the harness in `session/new`.
+- **`internal/cli/acp.go`** connects them to the console: `/acp`, `/model` and `/mode`, drawing each turn in the transcript, the permission rules and dialog, and H2H's commands as tools. A tool call runs the command through the same code that runs commands for the console's default harness, so it asks you where that would. The harness is told the same about H2H as the default harness is, with "use the h2h tools" in place of writing commands in its reply.
 - **Config** says how to run a harness as an agent: `acp_command`, the whole command, and `acp_env`, set for it. OpenCode's entry sets its permissions for bash, edits and web fetches to "ask", so those questions come to H2H rather than being allowed by OpenCode's default.
 
 ## What was verified
@@ -73,15 +79,18 @@ On OpenCode 2.4.1, in a scratch repository, with its free model `opencode/big-pi
 | An allow rule | `git status --short` was allowed by `allow = ["git status*"]` and ran with no question |
 | A deny rule | `rm README.md` was refused by `deny = ["rm *"]`, and the file was not removed |
 | No rule | `echo hi > hello.txt` was put to the user, allowed with `y`, and ran |
+| H2H's commands as tools | Asked to run `ps`, then `map`, then to start a domain, OpenCode called the three tools through H2H's MCP server. `ps` and `map` printed in the transcript, `start` asked first, and when that was declined OpenCode said so in its answer |
+| The full-screen console | Opened by `h2h acp opencode` in a pseudo-terminal: the header showed `· ACP`, `/model` started OpenCode and listed its models, and `/exit` closed it |
 | A refusal | **OpenCode ended its turn with `cancelled`** on the refusal, so later steps of the request did not run. ACP's answer to a permission request has no message for the model. H2H now sends a request of its own that says what was refused and why, as the hooks' deny message does. OpenCode then carried on with the rest and said in its answer that the removal was not allowed |
 
 The client is also tested against a stand-in agent (`internal/acp/acp_test.go`): a turn with a permission allowed and refused, cancelling while a question is open, and changing a setting.
 
-Not checked: Ctrl-C on a real turn, the `/acp` view in the full-screen console, a long session, and any harness other than OpenCode.
+Not checked: Ctrl-C on a real turn, a long session, a tool call that takes longer than OpenCode's MCP time limit (such as `ask`, which waits for a report), and any harness other than OpenCode.
 
 ### Seen along the way
 
 - **OpenCode sends its reasoning as ordinary message text,** not as thought chunks, so it shows as part of the answer.
+- **OpenCode calls MCP tools through a tool of its own,** shown with the title "execute", so the transcript shows "execute" where H2H's command runs. The command itself follows it, as `> /ps`.
 - **A request carries the tool's raw input,** such as the command, but the title can change while the call runs: it is "shell" when pending and the command once it starts.
 
 ## Compared with the terminal
@@ -113,10 +122,10 @@ Only OpenCode has `acp_command`, so this demo does not meet the harness-parity r
 
 ## What the demo leaves out
 
-- **No keeper.** The session lives as long as the command. It is not in `ps`, cannot be attached to from another terminal, and does not survive the console closing. A product version would keep the ACP connection in the keeper, as the keeper holds the terminal now, and `attach` would show H2H's view.
+- **No keeper.** The ACP session lives as long as the console. It is not in `ps`, cannot be attached to from another terminal, and does not survive the console closing. A product version would keep the ACP connection in the keeper, as the keeper holds the terminal now, and `attach` would show H2H's view.
 - **No workspace.** It runs in the project's folder.
-- **No roles, delegation or reports.** `ask`, `h2h-report` and domains do not use it. Over ACP, a report could be an MCP tool H2H passes in `session/new`, and the turn's end would replace the wait for `h2h-report`.
-- **Plain drawing.** Lines in the terminal, not a view inside the full-screen console.
+- **Only the console's harness.** The harnesses it starts with `start` are ordinary terminal sessions, and `ask` still types into them. Over ACP, a report could be an MCP tool, and the turn's end would replace the wait for `h2h-report`.
+- **Not saved.** `--resume` brings back the page, not the ACP session, although OpenCode can resume a session over ACP.
 
 ## Deciding
 

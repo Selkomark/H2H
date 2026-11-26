@@ -118,6 +118,12 @@ func (e *env) clearTalk(_ context.Context, args []string) error {
 	case e.conv == nil:
 		return errors.New("clear starts a new conversation with the default harness in the console; there is none outside it")
 	}
+	if e.link.on() {
+		// Over ACP a new conversation is a new session of the harness.
+		e.link.close()
+		fmt.Fprintf(e.out, "Cleared the ACP session with %s. Your next message starts a new one.\n", e.link.want)
+		return nil
+	}
 	name := "the default harness"
 	if cfg, err := config.Load(e.root); err == nil {
 		name = cfg.DefaultHarness

@@ -117,7 +117,7 @@ func (e *env) converse(ctx context.Context, text string) error {
 // turn runs one turn of the conversation t, which is new when its ID is
 // "". It returns the harness's reply and the conversation as it goes on.
 func (e *env) turn(ctx context.Context, cfg config.Config, name string, h config.Harness, t talk, text string, turns []string, result string, round int) (string, talk, error) {
-	prompt, wiring, err := e.turnPrompt(cfg, t, text, turns, result, round)
+	prompt, wiring, err := e.turnPrompt(cfg, assistantRules, t, text, turns, result, round)
 	if err != nil {
 		return "", t, err
 	}
@@ -140,7 +140,7 @@ func (e *env) turn(ctx context.Context, cfg config.Config, name string, h config
 // remember, is told everything. A conversation that goes on is told the
 // message and how things stand now, or, after commands it asked for,
 // only what they printed.
-func (e *env) turnPrompt(cfg config.Config, t talk, text string, turns []string, result string, round int) (prompt, wiring string, err error) {
+func (e *env) turnPrompt(cfg config.Config, rules string, t talk, text string, turns []string, result string, round int) (prompt, wiring string, err error) {
 	state, wiringText, err := e.assistantState(cfg)
 	if err != nil {
 		return "", "", err
@@ -150,7 +150,7 @@ func (e *env) turnPrompt(cfg config.Config, t talk, text string, turns []string,
 	wiring = digest(configMap(e.root, cfg, nil, plainStyles()) + cfg.RolesXML(""))
 	switch {
 	case t.ID == "":
-		return assistantRules + "How the config is wired up:\n" + wiringText + "\n" + "Harnesses right now:\n" + state + "\n" +
+		return rules + "How the config is wired up:\n" + wiringText + "\n" + "Harnesses right now:\n" + state + "\n" +
 			"Message from the user: " + text + "\n" + rounds(turns), wiring, nil
 	case round > 1:
 		return "What H2H's commands printed:\n\n" + result + "\n\nContinue: run more, or give the user your answer.\n", t.Wiring, nil
@@ -183,18 +183,25 @@ func (e *env) assistantState(cfg config.Config) (state, wiring string, err error
 
 // assistantRules tell the default harness where it is and how to act. A
 // conversation is told them once, at its start.
-const assistantRules = "You are the assistant in the console of H2H, a tool that runs coding-agent harnesses as a team " +
+const assistantRules = assistantAbout + assistantRunLines + assistantCommandList + assistantPolicy
+
+// The parts of assistantRules. A harness driven over ACP runs H2H's
+// commands as tools instead of in lines of its reply, and is told the rest
+// the same; see acpRules.
+const assistantAbout = "You are the assistant in the console of H2H, a tool that runs coding-agent harnesses as a team " +
 	"for the project in the current directory: each harness owns a domain and works in its own session and workspace. " +
 	"The user types messages into the console, and each comes to you in this conversation, with how things stand at that moment. " +
 	"Answer each one briefly, in plain text for a terminal: no Markdown. You remember the earlier messages, " +
 	"so when the user says to go ahead with something, it is what was discussed before. " +
-	"The conversation lasts until the user starts a new one with /clear.\n\n" +
-	"You can run H2H's commands yourself. To run one, put it on a line of its own in your reply, after " + runMarker + ", for example:\n" +
+	"The conversation lasts until the user starts a new one with /clear.\n\n"
+
+const assistantRunLines = "You can run H2H's commands yourself. To run one, put it on a line of its own in your reply, after " + runMarker + ", for example:\n" +
 	runMarker + " start backend\n" +
 	"H2H runs the commands of your reply in order once the reply ends, then shows you what they printed, and you continue: " +
 	"run more, or give the user your answer. Say in a few words what you are about to do before the commands, " +
-	"and do not claim a result before you have seen it. When you have nothing more to run, reply without any such line.\n\n" +
-	"The commands you can run:\n" +
+	"and do not claim a result before you have seen it. When you have nothing more to run, reply without any such line.\n\n"
+
+const assistantCommandList = "The commands you can run:\n" +
 	"  ps                          list the harnesses that were started, with their state\n" +
 	"  start <harness | domain>    start a harness in its own workspace; a domain starts its owner, told its role\n" +
 	"  stop <id>                   stop a running harness\n" +
@@ -213,8 +220,9 @@ const assistantRules = "You are the assistant in the console of H2H, a tool that
 	"  sessions                    the saved console sessions\n" +
 	"  doctor                      check that everything H2H needs is in place\n" +
 	"  install [--update] [harness ...]\n" +
-	"                              install missing harnesses, or update installed ones\n" +
-	"The user is asked before start, stop, rm and install are run, and may decline. " +
+	"                              install missing harnesses, or update installed ones\n"
+
+const assistantPolicy = "The user is asked before start, stop, rm and install are run, and may decline. " +
 	"A harness works in its own workspace, a separate copy of the project, so its work is not in the project until it is landed. " +
 	"When the user accepts a harness's work, or wants it in the project, the code base or their branch, run land for that harness. " +
 	"Do not tell the user to run git for this, and do not ask the harness to merge, push or switch branches: land does it, and it asks the user itself. " +
