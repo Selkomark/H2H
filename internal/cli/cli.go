@@ -318,7 +318,7 @@ func Run(args []string) int {
 
 	cwd, err := os.Getwd()
 	if err == nil {
-		e.root, err = workspace.Root(context.Background(), cwd)
+		e.root, err = workspace.Root(context.Background(), cwd, config.FileName)
 	}
 	// doctor runs anywhere: saying what is missing is its job.
 	if err != nil && !(len(args) > 0 && args[0] == "doctor") {

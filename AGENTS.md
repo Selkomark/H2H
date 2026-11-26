@@ -41,7 +41,7 @@ To put `h2h` on your PATH, build with `-o` pointing at a directory that is on it
 
 The tree in the `go-architecture` skill is a map of where code should go. It includes packages that do not exist yet.
 
-At run time, H2H keeps its state in `.h2h/` at the root of the project it runs in, and sockets, reports, permission requests and wait records in `/tmp/h2h-<uid>/`. The project's config is `h2h.toml`; without one the shipped defaults apply. See [State directory](docs/runtime.md#state-directory).
+The project is the nearest folder with an `h2h.toml`, up to the top of the git repository, or else the whole repository ([The project](docs/runtime.md#the-project)). At run time, H2H keeps its state in `.h2h/` at the root of that project, and sockets, reports, permission requests and wait records in `/tmp/h2h-<uid>/`. The project's config is `h2h.toml`; without one the shipped defaults apply. See [State directory](docs/runtime.md#state-directory).
 
 ## What to read for a task
 

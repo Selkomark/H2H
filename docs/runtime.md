@@ -61,9 +61,45 @@ The keeper is the `h2h` binary started in an internal mode, so there is still on
 
 One entry per session, written by its keeper, plus the ticket store (for example SQLite). Because listing, logs and attaching read from here and from the keepers' sockets, they keep working even when the orchestrator is not running.
 
-The state directory is `.h2h/` at the project root. Everything H2H keeps while it runs is in it: sessions and their logs, the workspaces, saved console sessions, permission requests and the session counters. Only two things H2H writes are outside it: `h2h.toml`, the config, which is meant to be committed, and `h2h.toml.<pid>.tmp`, which the config is written to before it replaces `h2h.toml` and which is left behind only if H2H stops in between.
+The state directory is `.h2h/` at the project root, which for a project in a folder of a larger repository is that folder; see [The project](#the-project). Everything H2H keeps while it runs is in it: sessions and their logs, the workspaces, saved console sessions, permission requests and the session counters. Only two things H2H writes are outside it: `h2h.toml`, the config, which is meant to be committed, and `h2h.toml.<pid>.tmp`, which the config is written to before it replaces `h2h.toml` and which is left behind only if H2H stops in between.
 
 So that none of this ends up in the project, H2H adds `/.h2h` and `/h2h.toml.*.tmp` to the project's `.gitignore` whenever the config is applied and whenever a harness is started, and says so the first time. It creates the file if there is none and otherwise only appends, under a comment line starting `# H2H`, leaving the lines already there as they are. It skips a line the file already has, and a path git already ignores by another rule, such as a broader pattern or the user's global excludes file. It never stages or commits. The state directory also carries a `.gitignore` of its own that ignores everything in it, which keeps it out of git even if the project's lines are removed; H2H puts them back at the next start.
+
+## The project
+
+H2H works on one project: the nearest folder, from where it is run up to the top of the git repository, that holds an `h2h.toml`. Without one on the way, the project is the whole repository. So a project can be one folder of a larger repository, such as a team's part of a monorepo, with its own config, domains and state, while the rest of the repository belongs to others.
+
+```mermaid
+flowchart TD
+    CWD(["h2h runs in<br/>a folder"]) --> HAS{"h2h.toml<br/>here?"}
+    HAS -->|Yes| PROJECT(["This folder is<br/>the project"])
+    HAS -->|No| TOP{"Top of the<br/>repository?"}
+    TOP -->|No| UP["One folder up"]
+    UP --> HAS
+    TOP -->|Yes| REPO(["The whole repository<br/>is the project"])
+
+    classDef entry fill:#1f2937,stroke:#9ca3af,stroke-width:1.5px,color:#ffffff
+    classDef code fill:#dcfce7,stroke:#16a34a,stroke-width:1.5px,color:#111827
+    class CWD,PROJECT,REPO entry
+    class HAS,TOP,UP code
+```
+
+For a project in a folder of a larger repository:
+
+- **Its state and its `.gitignore` lines** are in that folder: `.h2h/` beside its `h2h.toml`, and H2H's ignore lines in the folder's own `.gitignore`, which git reads as it does the top one.
+- **A workspace is still a worktree of the whole repository,** since git has no worktree of one folder. It is kept in the folder's `.h2h/workspaces/`, and the harness starts in the folder's place inside it, so it sees the project where the user does. It can still read the rest of the repository, as the user can.
+- **Landing refuses work that changes files outside the folder,** and names them, before it asks anything: the rest of the repository is not the project's to change. See [Landing work](#landing-work).
+- **Paths are the folder's.** Domain `paths`, and `./` and `{project}` in the permission rules, are taken from the project's folder.
+- **Starting a project in a folder.** `/config`, run from a folder below the project, first asks whether to set H2H up for the whole project or for that folder alone. Choosing the folder writes its `h2h.toml`, which makes it a project of its own from then on.
+
+Checked on git 2.49 in a scratch repository with two team folders: a workspace made from one folder, work committed inside it and landed by hash, the repository left clean, and a commit that changed the other team's folder caught before landing.
+
+Not built yet:
+
+- **Sparse workspaces.** A worktree checks out the whole repository, which in a large monorepo costs disk and time for every session. git can check out only the project's folder in a worktree (`sparse-checkout` in cone mode), and the experiment above did so and landed its work, but H2H does not use it yet. It would also need the user's own sparse settings copied, and a way to name shared files, such as a root lockfile, that a build needs.
+- **Tools that scan the tree.** The workspaces are inside the repository, under a hidden `.h2h/`. Most tools skip hidden folders; one that does not, such as some test runners and file watchers, may find the copies. This is so at the top of a repository too.
+- **Submodules and Git LFS** are not fetched into a new workspace.
+- **Trust** is checked for the project's folder. A harness that trusts folders one by one, such as Codex, needs the folder trusted; Copilot's trust in a folder above covers it.
 
 ## Sessions and workspaces
 
@@ -155,6 +191,8 @@ A harness works in its workspace, so what it builds is not in the project until 
 4. **Uncommitted work.** Only commits can be landed. H2H lists what is uncommitted and asks whether to commit it in the workspace, in one commit named after the harness. Declining stops there. Files that git ignores are never committed.
 5. **The plan.** H2H shows the target branch, the number of commits, the files they change, and whether it is a fast-forward or needs a merge commit, and asks. Nothing in the project has changed up to this point.
 6. **The landing.** The workspace's commit is merged by its hash: a fast-forward when the branch has not moved, a merge commit otherwise. This works the same when the harness stayed on the detached HEAD it started on and when it made a branch of its own, and it leaves no branch behind.
+
+For a project in a folder of a larger repository, landing refuses, before the plan is shown, when the commits change files outside the folder, and lists them; see [The project](#the-project).
 
 If the merge conflicts, H2H undoes it, so the project is as it was, and the conflict is for the harness to settle in its workspace. If files in the project that are changed or untracked would be overwritten, git refuses before it touches anything, and H2H passes on what it said.
 

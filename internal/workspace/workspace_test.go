@@ -27,7 +27,7 @@ func newRepo(t *testing.T) string {
 	}
 	run("add", ".")
 	run("commit", "-q", "-m", "init")
-	root, err := Root(context.Background(), dir)
+	root, err := Root(context.Background(), dir, "h2h.toml")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -55,7 +55,7 @@ func TestReady(t *testing.T) {
 }
 
 func TestRootOutsideARepository(t *testing.T) {
-	if _, err := Root(context.Background(), t.TempDir()); err == nil {
+	if _, err := Root(context.Background(), t.TempDir(), "h2h.toml"); err == nil {
 		t.Error("Root outside a repository succeeded, want error")
 	}
 }
@@ -165,5 +165,89 @@ func TestFolderThatIsNotAWorktree(t *testing.T) {
 	}
 	if err := Remove(ctx, root, "s-1", true); err != nil || Exists(root, "s-1") {
 		t.Errorf("Remove with force = %v, Exists = %v; want the folder gone", err, Exists(root, "s-1"))
+	}
+}
+
+// newMonorepo makes a repository with two team folders, and an h2h.toml
+// in the first, and returns the repository's top and that folder.
+func newMonorepo(t *testing.T) (top, team string) {
+	t.Helper()
+	top = newRepo(t)
+	for _, f := range []string{"teams/web/web.txt", "teams/web/h2h.toml", "teams/api/api.txt"} {
+		if err := os.MkdirAll(filepath.Join(top, filepath.Dir(f)), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(top, f), []byte("x\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	gitIn(t, top, "add", ".")
+	gitIn(t, top, "-c", "user.name=test", "-c", "user.email=test@example.com", "commit", "-q", "-m", "teams")
+	return top, filepath.Join(top, "teams", "web")
+}
+
+func TestRootIsTheNearestFolderWithTheMarker(t *testing.T) {
+	top, team := newMonorepo(t)
+	ctx := context.Background()
+	if err := os.MkdirAll(filepath.Join(team, "src", "deep"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for dir, want := range map[string]string{
+		top:                                top,  // no marker at the top: the repository
+		filepath.Join(top, "teams", "api"): top,  // a folder without one: the repository
+		team:                               team, // the folder with the marker
+		filepath.Join(team, "src", "deep"): team, // and anything below it
+	} {
+		if got, err := Root(ctx, dir, "h2h.toml"); err != nil || got != want {
+			t.Errorf("Root(%s) = %s, %v; want %s", dir, got, err, want)
+		}
+	}
+	if p, err := Prefix(ctx, team); err != nil || p != "teams/web/" {
+		t.Errorf("Prefix = %q, %v", p, err)
+	}
+}
+
+func TestWorkspaceOfAFolderProject(t *testing.T) {
+	top, team := newMonorepo(t)
+	ctx := context.Background()
+	work, err := Create(ctx, team, "web-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := filepath.Join(Path(team, "web-1"), "teams", "web"); work != want {
+		t.Fatalf("the harness works in %s, want the project's folder in the worktree, %s", work, want)
+	}
+
+	// Work inside the folder lands.
+	if err := os.WriteFile(filepath.Join(work, "web.txt"), []byte("changed\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitIn(t, work, "-c", "user.name=test", "-c", "user.email=test@example.com", "commit", "-q", "-am", "web work")
+	p, err := PlanLanding(ctx, team, "web-1")
+	if err != nil || len(p.Outside) != 0 || !slices.Equal(p.Files, []string{"teams/web/web.txt"}) {
+		t.Fatalf("plan = %+v, %v", p, err)
+	}
+	if err := Land(ctx, team, "web-1", p, "merge"); err != nil {
+		t.Fatal(err)
+	}
+	if data, _ := os.ReadFile(filepath.Join(team, "web.txt")); string(data) != "changed\n" {
+		t.Errorf("the project has %q after landing", data)
+	}
+
+	// Work that reaches into another team's folder does not.
+	if err := os.WriteFile(filepath.Join(work, "..", "api", "api.txt"), []byte("not mine\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitIn(t, work, "-c", "user.name=test", "-c", "user.email=test@example.com", "commit", "-q", "-am", "api work")
+	p, err = PlanLanding(ctx, team, "web-1")
+	if err != nil || !slices.Equal(p.Outside, []string{"teams/api/api.txt"}) {
+		t.Fatalf("plan = %+v, %v; want teams/api/api.txt outside", p, err)
+	}
+	var outside *OutsideError
+	if err := Land(ctx, team, "web-1", p, "merge"); !errors.As(err, &outside) {
+		t.Fatalf("Land = %v, want an OutsideError", err)
+	}
+	if data, _ := os.ReadFile(filepath.Join(top, "teams", "api", "api.txt")); string(data) != "x\n" {
+		t.Errorf("the other team's file was changed: %q", data)
 	}
 }

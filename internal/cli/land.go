@@ -70,6 +70,12 @@ func (e *env) land(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
+	if len(plan.Outside) > 0 {
+		// The project is one folder of a larger repository, and the rest
+		// of it is not the project's to change.
+		return fmt.Errorf("the work of %s changes files outside this project's folder, so nothing was landed: %s\n"+
+			"Have the harness undo those changes in its workspace, then land again", info.ID, listed(plan.Outside))
+	}
 	fmt.Fprint(e.out, e.landingPlan(info.ID, plan))
 	if !e.ui.Confirm(fmt.Sprintf("Land this on %s?", plan.Target)) {
 		return nothing()

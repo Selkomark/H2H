@@ -8,7 +8,7 @@ The team is declared as code, in the way Terraform declares infrastructure. The 
 
 ## The file
 
-The config is one TOML file, `h2h.toml`, at the root of the git repository H2H runs in, meant to be committed. Each project therefore has its own harnesses and domains. A project without one runs on the defaults H2H ships with. So far it declares the harness pool, the default harness and the domains of responsibility:
+The config is one TOML file, `h2h.toml`, meant to be committed. It is at the top of the git repository, or in a folder of it, which makes that folder a project of its own; H2H uses the nearest one above where it runs ([runtime.md](runtime.md#the-project)). Each project therefore has its own harnesses and domains. A project without one runs on the defaults H2H ships with. So far it declares the harness pool, the default harness and the domains of responsibility:
 
 ```toml
 default_harness = "claude"

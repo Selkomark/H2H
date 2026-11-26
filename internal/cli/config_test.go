@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/Selkomark/H2H/internal/config"
+	"github.com/Selkomark/H2H/internal/console"
 )
 
 // guideConf is a config whose default harness is the stand-in program
@@ -289,5 +290,38 @@ func TestConfigGuideAsksWhichHarnessHoldsIt(t *testing.T) {
 	}
 	if cfg, err := config.Load(e.root); err != nil || cfg.Domains["ui"].Harness != "guide" {
 		t.Errorf("the default harness, picked, did not hold the conversation: %v %+v", err, cfg.Domains)
+	}
+}
+
+func TestConfigOffersTheFolderItRunsIn(t *testing.T) {
+	e, _ := doctorEnv(t, guideConf)
+	root, err := filepath.EvalSymlinks(e.root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	e.root = root
+	sub := filepath.Join(root, "teams", "web")
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Chdir(root)
+	ui := &scriptedUI{}
+	e.ui = ui
+	if got, err := e.configFolder(); err != nil || got != root || ui.question != "" {
+		t.Errorf("at the project's top: %s, %v, asked %q; want the project, unasked", got, err, ui.question)
+	}
+
+	t.Chdir(sub)
+	for pick, want := range map[int]string{0: root, 1: sub} {
+		ui := &scriptedUI{pick: func(o []console.Option) ([]string, bool) { return []string{o[pick].ID}, true }}
+		e.ui = ui
+		got, err := e.configFolder()
+		if err != nil || got != want || !strings.Contains(ui.question, "which folder") {
+			t.Errorf("picking %d: %s, %v, asked %q; want %s", pick, got, err, ui.question, want)
+		}
+		if !strings.Contains(strings.Join(ui.labels, "|"), "teams/web") {
+			t.Errorf("the folder was not offered by name: %q", ui.labels)
+		}
 	}
 }
