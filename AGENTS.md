@@ -51,7 +51,7 @@ At run time, H2H keeps its state in `.h2h/` at the root of the project it runs i
 | A config setting | [docs/configuration.md](docs/configuration.md) |
 | Domains or the map | [docs/responsibility-map.md](docs/responsibility-map.md) |
 | Dependencies | [docs/licensing.md](docs/licensing.md) |
-| Something not built yet | [docs/design.md](docs/design.md), then [docs/roadmap.md](docs/roadmap.md) and [docs/risks.md](docs/risks.md) |
+| Something not built yet | [docs/design.md](docs/design.md), then [docs/roadmap.md](docs/roadmap.md) and [docs/risks.md](docs/risks.md). Unplanned ideas are in [docs/ideas.md](docs/ideas.md) |
 
 ## Rules
 
