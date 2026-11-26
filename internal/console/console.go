@@ -33,6 +33,10 @@ type UI interface {
 	// Choose shows options to tick in a dialog. It returns the IDs of those
 	// ticked, and false if the user cancelled.
 	Choose(question string, options []Option) ([]string, bool)
+	// Pick shows options to choose one from in a dialog, with the focus on
+	// the first. It returns the ID of the one chosen, and false if the user
+	// cancelled.
+	Pick(question string, options []Option) (string, bool)
 	// Chat opens a conversation in a box over the page.
 	Chat(title string) Chat
 	// Clear empties the page. The lines the user entered stay in reach of
@@ -217,6 +221,19 @@ func (u *programUI) Choose(question string, options []Option) ([]string, bool) {
 	u.box.send(chooseMsg{from: u.command, question: question, options: options, reply: reply})
 	c := <-reply
 	return c.ids, c.ok
+}
+
+func (u *programUI) Pick(question string, options []Option) (string, bool) {
+	if len(options) == 0 {
+		return "", false
+	}
+	reply := make(chan choice, 1)
+	u.box.send(pickMsg{from: u.command, question: question, options: options, reply: reply})
+	c := <-reply
+	if !c.ok || len(c.ids) == 0 {
+		return "", false
+	}
+	return c.ids[0], true
 }
 
 func (u *programUI) Chat(title string) Chat {

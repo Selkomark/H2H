@@ -35,7 +35,7 @@ func newLandFixture(t *testing.T) *landFixture {
 	f.git(f.root, "add", ".")
 	f.git(f.root, "commit", "-q", "-m", "init")
 	// The root as git reports it, which on macOS differs from TempDir's.
-	root, err := workspace.Root(context.Background(), f.root)
+	root, err := workspace.Root(context.Background(), f.root, "h2h.toml")
 	if err != nil {
 		t.Fatal(err)
 	}

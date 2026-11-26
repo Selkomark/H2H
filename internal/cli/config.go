@@ -8,6 +8,7 @@ import (
 	"io/fs"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -29,14 +30,55 @@ const manualFlag = "--manual"
 // "show" prints it, and --manual opens it in the user's editor instead.
 func (e *env) config(ctx context.Context, args []string) error {
 	switch {
-	case len(args) == 0:
-		return e.configGuide(ctx)
 	case len(args) == 1 && args[0] == "show":
 		return e.configShow()
-	case len(args) == 1 && args[0] == manualFlag:
-		return e.configEdit(ctx)
+	case len(args) == 0, len(args) == 1 && args[0] == manualFlag:
+	default:
+		return errors.New("usage: config [show | " + manualFlag + "]")
 	}
-	return errors.New("usage: config [show | " + manualFlag + "]")
+	folder, err := e.configFolder()
+	if err != nil || folder == "" {
+		return err // nil when the user cancelled the choice
+	}
+	in := *e
+	in.root = folder
+	if len(args) == 0 {
+		err = in.configGuide(ctx)
+	} else {
+		err = in.configEdit(ctx)
+	}
+	if _, statErr := os.Stat(config.Path(folder)); err == nil && folder != e.root && statErr == nil {
+		fmt.Fprintln(e.out, e.st.dim.Render("This folder is now a project of its own. Run h2h from it, or a folder inside it, to work on it."))
+	}
+	return err
+}
+
+// configFolder is the folder whose config is set up: the project's, or,
+// when h2h runs in a folder below the project, that folder if the user
+// picks it. A folder with its own config is a project of its own, such as
+// a team's part of a monorepo; see workspace.Root.
+func (e *env) configFolder() (string, error) {
+	cwd, err := os.Getwd()
+	if err != nil {
+		return e.root, nil
+	}
+	if real, err := filepath.EvalSymlinks(cwd); err == nil {
+		cwd = real
+	}
+	rel, err := filepath.Rel(e.root, cwd)
+	if err != nil || rel == "." || strings.HasPrefix(rel, "..") {
+		return e.root, nil
+	}
+	options := []console.Option{
+		{ID: e.root, Label: "The whole project: " + tildePath(e.root, os.Getenv("HOME"))},
+		{ID: cwd, Label: "Only this folder, as a project of its own: " + rel},
+	}
+	folder, ok := e.ui.Pick("Set up H2H for which folder?", options)
+	if !ok {
+		fmt.Fprintln(e.out, "Setup cancelled. The config is unchanged.")
+		return "", nil
+	}
+	return folder, nil
 }
 
 // configText returns the config as it stands: the file, or the shipped

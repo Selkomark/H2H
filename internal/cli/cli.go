@@ -138,6 +138,36 @@ func (u shellUI) Choose(question string, options []console.Option) ([]string, bo
 	return pickByNumber(line, options)
 }
 
+// Pick asks which one option to take. Without a terminal the answer is a
+// line with the option's number; an empty line takes the first.
+func (u shellUI) Pick(question string, options []console.Option) (string, bool) {
+	if len(options) == 0 {
+		return "", false
+	}
+	if u.interactive() {
+		id, ok := console.Pick(u.in, u.tty, u.theme, question, options)
+		if ok {
+			fmt.Fprintf(u.out, "%s %s\n", question, id)
+		}
+		return id, ok
+	}
+	fmt.Fprintln(u.out, question)
+	for n, o := range options {
+		fmt.Fprintf(u.out, "  %d. %s\n", n+1, o.Label)
+	}
+	fmt.Fprint(u.out, "Type a number [1] ")
+	line, _ := readLine(u.in)
+	line = strings.TrimSpace(line)
+	if line == "" {
+		return options[0].ID, true
+	}
+	n, err := strconv.Atoi(line)
+	if err != nil || n < 1 || n > len(options) {
+		return "", false
+	}
+	return options[n-1].ID, true
+}
+
 // pickByNumber reads an answer typed as a line: "all", or option numbers
 // separated by spaces or commas. An answer it cannot read takes nothing.
 func pickByNumber(line string, options []console.Option) ([]string, bool) {
@@ -282,7 +312,7 @@ func Run(args []string) int {
 
 	cwd, err := os.Getwd()
 	if err == nil {
-		e.root, err = workspace.Root(context.Background(), cwd)
+		e.root, err = workspace.Root(context.Background(), cwd, config.FileName)
 	}
 	// doctor runs anywhere: saying what is missing is its job.
 	if err != nil && !(len(args) > 0 && args[0] == "doctor") {

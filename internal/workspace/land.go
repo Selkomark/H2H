@@ -68,6 +68,19 @@ type Plan struct {
 	Files       []string // the paths those commits change
 	Stat        string   // git's one-line summary of the change
 	FastForward bool     // the branch has not moved, so no merge commit is needed
+	// Outside lists the changed paths that are not in the project's
+	// folder, for a project inside a larger repository. Such work is not
+	// landed: the rest of the repository is not the project's.
+	Outside []string
+}
+
+// OutsideError means the work changes files outside the project's folder.
+type OutsideError struct {
+	Files []string
+}
+
+func (e *OutsideError) Error() string {
+	return "the work changes files outside the project's folder: " + strings.Join(e.Files, ", ")
 }
 
 // Target returns the branch checked out in the project root, which is where
@@ -172,6 +185,16 @@ func PlanLanding(ctx context.Context, root, id string) (Plan, error) {
 	if names = strings.TrimSpace(names); names != "" {
 		p.Files = strings.Split(names, "\n")
 	}
+	// git names the files from the top of the repository.
+	prefix, err := Prefix(ctx, root)
+	if err != nil {
+		return Plan{}, err
+	}
+	for _, f := range p.Files {
+		if !strings.HasPrefix(f, prefix) {
+			p.Outside = append(p.Outside, f)
+		}
+	}
 	stat, err := git(ctx, root, "diff", "--shortstat", p.Base+"..."+p.Head)
 	if err != nil {
 		return Plan{}, err
@@ -206,6 +229,9 @@ func Land(ctx context.Context, root, id string, p Plan, message string) error {
 	}
 	if target != p.Target || base != p.Base || now != p.Head {
 		return ErrMoved
+	}
+	if len(p.Outside) > 0 {
+		return &OutsideError{Files: p.Outside}
 	}
 
 	args := []string{"merge", "--quiet", "--ff-only", p.Head}

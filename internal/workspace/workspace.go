@@ -12,11 +12,39 @@ import (
 	"strings"
 )
 
-// Root returns the top of the git repository that contains dir.
-func Root(ctx context.Context, dir string) (string, error) {
+// Root returns the project that dir belongs to: the nearest folder, from
+// dir up to the top of its git repository, that holds a file named marker,
+// or else the top of the repository. A project can so be one folder of a
+// larger repository, such as a team's part of a monorepo.
+func Root(ctx context.Context, dir, marker string) (string, error) {
 	out, err := git(ctx, dir, "rev-parse", "--show-toplevel")
 	if err != nil {
 		return "", errors.New("h2h must be run inside a git repository")
+	}
+	top := strings.TrimSpace(out)
+	// git gives the top with symbolic links followed, so dir is compared
+	// in that form.
+	at := resolve(dir)
+	if rel, err := filepath.Rel(top, at); err != nil || strings.HasPrefix(rel, "..") {
+		return top, nil
+	}
+	for ; ; at = filepath.Dir(at) {
+		if _, err := os.Stat(filepath.Join(at, marker)); err == nil {
+			return at, nil
+		}
+		if at == top || at == filepath.Dir(at) {
+			return top, nil
+		}
+	}
+}
+
+// Prefix returns where the project is inside its git repository, as a
+// path with a trailing slash, such as "teams/web/", or "" for a project
+// at the top of the repository.
+func Prefix(ctx context.Context, root string) (string, error) {
+	out, err := git(ctx, root, "rev-parse", "--show-prefix")
+	if err != nil {
+		return "", err
 	}
 	return strings.TrimSpace(out), nil
 }
@@ -56,13 +84,20 @@ func Path(root, id string) string {
 	return filepath.Join(root, ".h2h", "workspaces", id)
 }
 
-// Create adds a worktree for the session at the project's current commit.
+// Create adds a worktree for the session at the project's current commit,
+// and returns the project's folder in it, which is where the harness works.
+// A worktree holds the whole repository, so for a project in a folder of a
+// larger one, that folder is inside the worktree at the same place.
 func Create(ctx context.Context, root, id string) (string, error) {
 	path := Path(root, id)
+	prefix, err := Prefix(ctx, root)
+	if err != nil {
+		return "", fmt.Errorf("creating workspace: %w", err)
+	}
 	if _, err := git(ctx, root, "worktree", "add", "--detach", path); err != nil {
 		return "", fmt.Errorf("creating workspace: %w", err)
 	}
-	return path, nil
+	return filepath.Join(path, prefix), nil
 }
 
 // ErrNotWorktree means the workspace folder exists but git no longer
