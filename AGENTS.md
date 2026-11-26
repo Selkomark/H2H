@@ -4,7 +4,7 @@ Read this before changing anything. It says how to work in this repository and w
 
 ## Before you start
 
-- **Check the branches.** Run `git fetch` and `git branch -a`. On 2026-11-25 the code was on `feature/development`, and `main` held only design documents, so a `main` checkout looked like an unbuilt project.
+- **Check the branches.** Run `git fetch` and `git branch -a`. Since 2026-11-26 the code is on `main`, the only branch. Earlier it lived on a development branch while `main` held only design documents, so a branch other than `main` may be out of date.
 - **Built and designed are different.** Most of `docs/` is design. The status line at the top of the README, "What is built" in [docs/permissions.md](docs/permissions.md#what-is-built) and the command table in [docs/runtime.md](docs/runtime.md#interfaces) help tell them apart. Where a doc and the code disagree about what exists, check the code and tell the user. The stage table in [docs/roadmap.md](docs/roadmap.md) marks only stage 1 as built, although parts of later stages exist.
 - **Two meanings of "harness".** Here it is a product H2H runs, such as Claude Code. You may be running in one while working on code that starts them. "Session" also has two meanings; see [Console sessions](docs/runtime.md#console-sessions).
 
