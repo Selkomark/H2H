@@ -1,6 +1,8 @@
 package console
 
 import (
+	"io"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -93,5 +95,53 @@ func TestTheFillLeavesTextAndCursor(t *testing.T) {
 	}
 	if !strings.HasPrefix(rows[0], "\x1b[48;2;") || !strings.Contains(rows[0], "\x1b[7mC\x1b[0m") {
 		t.Errorf("want the row filled from its first cell and the cursor left alone: %q", rows[0])
+	}
+}
+
+// The terminal's own background, which colours the margin some terminals
+// keep round the page, takes the glow's tint while the frame glows, and is
+// put back when it stops or a harness is given the terminal.
+func TestTheMarginTakesTheGlow(t *testing.T) {
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Close()
+	m := newTestModel(func(string) bool { return false })
+	m.o.Theme.Glow, m.o.Out = testGlow, w
+	sent := func() string {
+		t.Helper()
+		w.Close()
+		data, _ := io.ReadAll(r)
+		r, w, _ = os.Pipe()
+		m.o.Out = w
+		return string(data)
+	}
+
+	m.busy, m.glowFor = true, time.Second
+	m.syncMargin()
+	m.syncMargin() // the same colour is not sent twice
+	got := sent()
+	if strings.Count(got, "\x1b]11;rgb:") != 1 || strings.Contains(got, "\x1b]111") {
+		t.Fatalf("while glowing the terminal was sent %q; want its background set once", got)
+	}
+	// A faint tint: close to the background, not the colours themselves.
+	tint := testGlow.tint(time.Second)
+	if back := hexLight(testGlow.Back); tint.r-back.r > 16 || tint.g-back.g > 16 || tint.b-back.b > 16 {
+		t.Errorf("tint %v is too far from the background %v", tint, back)
+	}
+
+	m.handedOver = true
+	m.syncMargin()
+	if got := sent(); got != resetBackground {
+		t.Errorf("handing the terminal over sent %q; want the background put back", got)
+	}
+	m.handedOver = false
+	m.syncMargin()
+	sent()
+	m.busy = false
+	m.syncMargin()
+	if got := sent(); got != resetBackground {
+		t.Errorf("when the glow stopped the terminal was sent %q; want the background put back", got)
 	}
 }

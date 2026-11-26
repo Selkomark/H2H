@@ -192,6 +192,9 @@ func Run(o Options) error {
 	final, err := p.Run()
 	if m, ok := final.(*model); ok {
 		m.save()
+		if m.margin != "" && o.Out != nil {
+			_, _ = io.WriteString(o.Out, resetBackground) // the terminal's own background again
+		}
 	}
 	return err
 }
