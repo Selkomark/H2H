@@ -7,3 +7,6 @@
 
 # Worktrees made for agents working on this repository
 /.claude/worktrees/
+
+# H2H: its runtime state, and the file it writes while saving h2h.toml. h2h.toml itself belongs in git.
+/h2h.toml.*.tmp
