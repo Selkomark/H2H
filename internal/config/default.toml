@@ -25,8 +25,10 @@ default_harness = "claude"
 #             the harness's own hooks that tell H2H when a session stops to
 #             wait for you, at a permission prompt or a question, and when
 #             it carries on, so the console can say so. A hook runs {state}
-#             with "wait" or "go". state_files are written into a folder of
-#             the session's own in H2H's state directory, named by
+#             with "wait" or "go". The hook for a submitted prompt must run
+#             "go": from it H2H learns that a request it typed arrived, and
+#             it tells you when one did not. state_files are written into a
+#             folder of the session's own in H2H's state directory, named by
 #             {state_dir}, for a harness that reads hooks from files such as
 #             a plugin. Nothing is written into the workspace
 #   no_wait_signal
@@ -82,6 +84,11 @@ default_harness = "claude"
 #   pass_env  extra environment variables the harness may see. A harness
 #             otherwise gets only a basic environment (HOME, PATH, TERM,
 #             locale, proxy settings), never your whole shell environment.
+#   session_env
+#             NAME=value entries set for a session, to turn off a question
+#             the harness would put on its screen by itself, such as one it
+#             asks the first time it runs in a terminal. A request H2H types
+#             while such a question is open goes to the question and is lost
 #   context_args, context_env
 #             how a session started for a domain is told its role. In
 #             context_args, {roles} becomes the roles as XML. In context_env
@@ -131,6 +138,10 @@ trust_key = ["trustedFolders"]
 trust_value = "{project}"
 trust_covers_subfolders = true
 pass_env = ["COPILOT_GITHUB_TOKEN", "GH_TOKEN", "GITHUB_TOKEN"]
+# Copilot offers to set up a shift+enter key binding the first time it runs
+# in VS Code, Cursor, Windsurf or Windows Terminal, which it finds among the
+# programs that started it, the h2h console's terminal included.
+session_env = ["COPILOT_SETUP_TERMINAL=false"]
 
 [harness.codex]
 command = "codex"

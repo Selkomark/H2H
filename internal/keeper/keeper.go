@@ -106,7 +106,7 @@ func Run(root, id string) error {
 	for _, a := range h.PermitArgs {
 		args = append(args, strings.ReplaceAll(a, config.PermitPlaceholder, quoted(PermitPath(root, id))))
 	}
-	extraEnv := []string{"H2H_SESSION=" + id, "H2H_ROOT=" + root, "PATH=" + shimDir + string(os.PathListSeparator) + os.Getenv("PATH")}
+	extraEnv := append([]string{"H2H_SESSION=" + id, "H2H_ROOT=" + root, "PATH=" + shimDir + string(os.PathListSeparator) + os.Getenv("PATH")}, h.SessionEnv...)
 	// The hooks that tell H2H when the harness waits for the user.
 	stateArgs, stateEnv, err := stateHooks(root, id, h)
 	if err != nil {

@@ -43,11 +43,9 @@ func (e *env) heed() (notices []string, alert string) {
 			first = i
 		}
 		// A wait the hooks confirm after the silence was told is told
-		// again, since it now says what the harness waits for.
-		key := a.Since
-		if a.Kind == session.Waiting {
-			key = key.Add(time.Nanosecond)
-		}
+		// again, since it now says what the harness waits for. So is a
+		// change between a request not taken and silence.
+		key := a.Since.Add(time.Duration(a.Kind) * time.Nanosecond)
 		if told, ok := e.heeded.told[i.ID]; ok && told.Equal(key) {
 			continue
 		}
@@ -61,11 +59,14 @@ func (e *env) heed() (notices []string, alert string) {
 		}
 	}
 	if first.ID != "" {
-		verb := "is waiting for you"
-		if first.Attention.Kind == session.Quiet {
+		verb, then := "is waiting for you", " · answer it with "
+		switch first.Attention.Kind {
+		case session.Quiet:
 			verb = "may be waiting for you"
+		case session.NotTaken:
+			verb, then = "did not get your request", " · see why with "
 		}
-		alert = e.st.warn.Render(first.ID+" "+verb) + e.st.dim.Render(" · answer it with ") + e.st.accent.Render("attach "+first.ID)
+		alert = e.st.warn.Render(first.ID+" "+verb) + e.st.dim.Render(then) + e.st.accent.Render("attach "+first.ID)
 	}
 	return notices, alert
 }
@@ -75,6 +76,10 @@ func (e *env) heed() (notices []string, alert string) {
 func (e *env) waitNotice(i session.Info) string {
 	who := i.ID + " (" + i.Harness + ")"
 	open := e.st.dim.Render(" Open it with ") + e.st.accent.Render("/attach "+i.ID) + e.st.dim.Render(".")
+	if i.Attention.Kind == session.NotTaken {
+		return e.st.warn.Render(fmt.Sprintf("%s did not take request %d: nothing reached its prompt. Something else on its screen, such as a question it asks when it starts, may have had the keys.", who, i.Attention.Request)) +
+			e.st.dim.Render(" Look with ") + e.st.accent.Render("/attach "+i.ID) + e.st.dim.Render(", then ask again.")
+	}
 	if i.Attention.Kind == session.Quiet {
 		return e.st.warn.Render(fmt.Sprintf("%s has been quiet for %s with a request open, so it may be waiting for your answer in its own terminal.", who, session.QuietAfter)) + open
 	}

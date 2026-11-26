@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
-	"path/filepath"
 	"strings"
 	"time"
 )
@@ -22,12 +21,21 @@ import (
 //   - The harness has a request from H2H open and its terminal has been
 //     silent for a while. A harness at work keeps drawing, so this is a
 //     strong hint but not certain, and it is shown as such.
+//
+// A request H2H types into a harness can also fail to arrive: a question
+// the harness puts on its screen, such as one it asks when it starts, takes
+// the keys instead. A harness whose hooks run "go" when a prompt is
+// submitted tells H2H that the request arrived, and while it has not, H2H
+// says so rather than that the harness may be waiting.
 
 // Attention says whether a running session needs the user.
 type Attention struct {
 	Kind  AttentionKind
 	Since time.Time // when it started
 	Why   string    // what the harness said it waits for, if it said
+	// Request is the number of the request that was not taken, for
+	// NotTaken.
+	Request int
 }
 
 // AttentionKind is how sure H2H is that a session waits for the user.
@@ -42,7 +50,19 @@ const (
 	// Waiting: the harness said, through its hooks, that it waits for the
 	// user.
 	Waiting
+	// NotTaken: H2H typed a request into a harness whose hooks say when a
+	// prompt is submitted, none has said so, and its terminal has been
+	// silent for TakeAfter. The keys most likely went to something else on
+	// its screen, and the request is not being worked on.
+	NotTaken
 )
+
+// TakeAfter is how long a harness whose hooks confirm a submitted prompt
+// may leave a typed request unconfirmed, with its terminal silent, before
+// H2H says the request did not arrive. Submitting takes a harness well under
+// a second. A harness busy with earlier work holds a typed request until it
+// is done, but it keeps drawing meanwhile, so silence is what counts.
+const TakeAfter = 8 * time.Second
 
 // QuietAfter is how long a running session with a request open may be
 // silent before H2H says it may be waiting for the user. A harness at work
@@ -127,32 +147,44 @@ func attend(root string, info Info, now time.Time) Attention {
 			return Attention{Kind: Waiting, Since: w.Since, Why: w.Why}
 		}
 	}
-	asked, open := openRequest(root, info.ID)
+	req, open := openRequest(root, info.ID)
 	if !open {
 		return Attention{}
 	}
 	// Silent since the later of the request and the last output.
-	quietSince := asked
+	quietSince := req.asked
 	if fi, err := os.Stat(LogPath(root, info.ID)); err == nil && fi.ModTime().After(quietSince) {
 		quietSince = fi.ModTime()
 	}
-	if now.Sub(quietSince) < QuietAfter {
+	silent := now.Sub(quietSince)
+	if req.confirmed && !req.taken && silent >= TakeAfter {
+		return Attention{Kind: NotTaken, Since: quietSince, Request: req.n}
+	}
+	if silent < QuietAfter {
 		return Attention{}
 	}
 	return Attention{Kind: Quiet, Since: quietSince}
 }
 
-// openRequest returns when the latest request H2H gave a session was made,
-// if it has not been reported on yet. It creates nothing.
-func openRequest(root, id string) (time.Time, bool) {
+// request is what is known of the latest request H2H gave a session.
+type request struct {
+	n         int
+	asked     time.Time // when it was made
+	confirmed bool      // the harness's hooks say when it takes a request
+	taken     bool      // and they have said it took this one
+}
+
+// openRequest returns the latest request H2H gave a session, if it has not
+// been reported on yet. It creates nothing.
+func openRequest(root, id string) (request, bool) {
 	sock, err := SocketPath(root, id)
 	if err != nil {
-		return time.Time{}, false
+		return request{}, false
 	}
 	dir := strings.TrimSuffix(sock, ".sock") + ".reports"
 	entries, err := os.ReadDir(dir)
 	if err != nil {
-		return time.Time{}, false
+		return request{}, false
 	}
 	last := 0
 	for _, e := range entries {
@@ -162,16 +194,24 @@ func openRequest(root, id string) (time.Time, bool) {
 		}
 	}
 	if last == 0 {
-		return time.Time{}, false
+		return request{}, false
 	}
 	if _, err := os.Stat(ReportPath(dir, last)); err == nil {
-		return time.Time{}, false // reported
+		return request{}, false // reported
 	}
-	fi, err := os.Stat(filepath.Join(dir, fmt.Sprintf("%d.asked", last)))
+	asked := askedPath(dir, last)
+	fi, err := os.Stat(asked)
 	if err != nil {
-		return time.Time{}, false
+		return request{}, false
 	}
-	return fi.ModTime(), true
+	mark, _ := os.ReadFile(asked)
+	_, err = os.Stat(takenPath(dir, last))
+	return request{
+		n:         last,
+		asked:     fi.ModTime(),
+		confirmed: strings.TrimSpace(string(mark)) == confirmMark,
+		taken:     err == nil,
+	}, true
 }
 
 // shorten keeps the first line-broken words of text, up to limit runes.

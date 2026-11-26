@@ -3,8 +3,12 @@ package cli
 import (
 	"bytes"
 	"context"
+	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Selkomark/H2H/internal/session"
 )
@@ -141,4 +145,71 @@ func mustLoad(t *testing.T, root, id string) session.Info {
 		t.Fatal(err)
 	}
 	return info
+}
+
+// The "go" of a submitted prompt tells H2H which request arrived. Each
+// harness names the prompt's field differently, so any text is searched.
+func TestStateGoRecordsTheRequestTaken(t *testing.T) {
+	root, id, done := runningSession(t)
+	dir, err := session.ReportDir(root, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = os.RemoveAll(dir)
+		e := &env{root: root, out: &bytes.Buffer{}, errw: &bytes.Buffer{}, ui: &scriptedUI{yes: true}, st: plainStyles()}
+		_ = e.stop(context.Background(), []string{id})
+		<-done
+	})
+	getenv := func(k string) string { return map[string]string{"H2H_ROOT": root, "H2H_SESSION": id}[k] }
+	for range 3 {
+		if _, err := session.NewRequest(dir, true); err != nil {
+			t.Fatal(err)
+		}
+	}
+	head := func(n int) string { return fmt.Sprintf(requestHead, n) + `:\n\nwhat is left?` }
+	tests := []struct {
+		name, input string
+		taken       int // 0: none
+	}{
+		{"a tool's go says nothing of requests", `{"hook_event_name":"PostToolUse","tool_name":"Bash"}`, 0},
+		{"another prompt", `{"hook_event_name":"UserPromptSubmit","prompt":"fix the tests"}`, 0},
+		{"claude and codex: prompt", `{"hook_event_name":"UserPromptSubmit","prompt":"` + head(2) + `"}`, 2},
+		{"a nested field", `{"timestamp":1,"data":{"userPrompt":"` + head(3) + `"}}`, 3},
+		{"input that is not JSON", head(1), 1},
+		{"a request never made", `{"prompt":"` + head(8) + `"}`, 0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if err := state([]string{"go"}, strings.NewReader(tt.input), getenv); err != nil {
+				t.Fatal(err)
+			}
+			for n := 1; n <= 8; n++ {
+				if got := session.Taken(dir, n); got != (n == tt.taken) {
+					t.Errorf("request %d taken = %v", n, got)
+				}
+			}
+			for n := 1; n <= 8; n++ {
+				_ = os.Remove(filepath.Join(dir, fmt.Sprintf("%d.taken", n)))
+			}
+		})
+	}
+}
+
+func TestNotTakenNoticeSaysTheRequestDidNotArrive(t *testing.T) {
+	e := &env{st: plainStyles(), heeded: &heeded{}}
+	i := session.Info{ID: "ui-1", Harness: "copilot", State: session.Running,
+		Attention: session.Attention{Kind: session.NotTaken, Since: time.Now(), Request: 4}}
+	notice := e.waitNotice(i)
+	for _, want := range []string{"ui-1 (copilot) did not take request 4", "/attach ui-1", "ask again"} {
+		if !strings.Contains(notice, want) {
+			t.Errorf("notice %q lacks %q", notice, want)
+		}
+	}
+	if strings.Contains(notice, "may be waiting") {
+		t.Errorf("notice %q says the harness may be waiting", notice)
+	}
+	if got := stateText(i); got != "did not get the request" {
+		t.Errorf("state shown as %q", got)
+	}
 }

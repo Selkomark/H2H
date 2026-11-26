@@ -345,6 +345,11 @@ func forHarness(text string) string {
 // reportCommand is the internal command a harness's h2h-report runs.
 const reportCommand = "report"
 
+// requestHead begins every request typed into a session, with its number.
+// The session's hooks find it in the prompt the harness submits, and so
+// learn which request it took.
+const requestHead = "Request %d, from the user of H2H through its console"
+
 // startSettle is how long after its start a harness is left alone before
 // a request is typed into it.
 const startSettle = 10 * time.Second
@@ -434,9 +439,10 @@ func (e *env) askHarness(ctx context.Context, args []string) error {
 // project, that Enter would answer its trust question, which is the user's
 // to answer, and may answer it with yes. So a request is typed only where
 // H2H knows there is no such question: anything it cannot check is a no.
-func (e *env) safeToType(info session.Info) error {
-	refuse := func(why string) error {
-		return fmt.Errorf("%s, so H2H will not type into %s: it could answer a trust question for you. Give it the request yourself: attach %s", why, info.ID, info.ID)
+// It returns the harness's config entry.
+func (e *env) safeToType(info session.Info) (config.Harness, error) {
+	refuse := func(why string) (config.Harness, error) {
+		return config.Harness{}, fmt.Errorf("%s, so H2H will not type into %s: it could answer a trust question for you. Give it the request yourself: attach %s", why, info.ID, info.ID)
 	}
 	cfg, err := config.Load(e.root)
 	if err != nil {
@@ -447,7 +453,7 @@ func (e *env) safeToType(info session.Info) error {
 	case !ok:
 		return refuse(info.Harness + " is not in the config")
 	case h.NoTrustQuestion:
-		return nil
+		return h, nil
 	case !h.ChecksTrust():
 		return refuse("the config does not say how to check that " + info.Harness + " trusts this project")
 	}
@@ -462,13 +468,14 @@ func (e *env) safeToType(info session.Info) error {
 	if !trusted {
 		return refuse(info.Harness + " has not been told to trust this project")
 	}
-	return nil
+	return h, nil
 }
 
 // askRunning types a request into a running harness's terminal and waits
 // for its report.
 func (e *env) askRunning(ctx context.Context, info session.Info, question string) error {
-	if err := e.safeToType(info); err != nil {
+	h, err := e.safeToType(info)
+	if err != nil {
 		return err
 	}
 	// A harness that has only just started is still drawing its screen
@@ -490,11 +497,14 @@ func (e *env) askRunning(ctx context.Context, info session.Info, question string
 	if err != nil {
 		return err
 	}
-	n, err := session.NewRequest(dir)
+	// A harness whose hooks run "go" when a prompt is submitted says when
+	// it takes the request; see state.
+	confirmed := h.TellsWaiting()
+	n, err := session.NewRequest(dir, confirmed)
 	if err != nil {
 		return err
 	}
-	request := fmt.Sprintf("Request %d, from the user of H2H through its console:\n\n%s\n\n"+
+	request := fmt.Sprintf(requestHead+":\n\n%s\n\n"+
 		"When you have the answer, send it back by running this shell command, with the answer in plain text as its input:\n\n"+
 		"%s %d <<'H2H_ANSWER'\nyour answer\nH2H_ANSWER\n\n"+
 		"Run that command by itself, with nothing added before or after it. "+
@@ -511,10 +521,15 @@ func (e *env) askRunning(ctx context.Context, info session.Info, question string
 
 	deadline := time.Now().Add(reportWait)
 	var told time.Time // the wait last told about, outside the full-screen console
+	took := false
 	for {
 		if data, err := os.ReadFile(session.ReportPath(dir, n)); err == nil {
 			fmt.Fprintln(e.out, strings.TrimSpace(string(data)))
 			return nil
+		}
+		if confirmed && !took && session.Taken(dir, n) {
+			took = true
+			fmt.Fprintln(e.out, e.st.dim.Render(info.ID+" took the request and is working on it."))
 		}
 		now, err := session.Load(e.root, info.ID)
 		// The full-screen console tells the user itself; anywhere else

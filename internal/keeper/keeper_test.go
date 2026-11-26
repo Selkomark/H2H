@@ -181,3 +181,25 @@ func TestCheck(t *testing.T) {
 		t.Errorf("Check left its socket behind at %s", sock)
 	}
 }
+
+func TestKeeperSetsSessionEnv(t *testing.T) {
+	root := t.TempDir()
+	conf := "default_harness = \"fake\"\n[harness.fake]\ncommand = \"sh\"\nargs = [\"-c\", 'echo \"setup=$FAKE_SETUP\"']\nsession_env = [\"FAKE_SETUP=false\"]\n"
+	if err := os.WriteFile(config.Path(root), []byte(conf), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	info, err := session.Create(root, "fake")
+	if err != nil {
+		t.Fatal(err)
+	}
+	info.Workspace = root
+	if err := session.Save(root, info); err != nil {
+		t.Fatal(err)
+	}
+	if err := Run(root, info.ID); err != nil {
+		t.Fatal(err)
+	}
+	if log, _ := os.ReadFile(session.LogPath(root, info.ID)); !strings.Contains(string(log), "setup=false") {
+		t.Errorf("terminal log = %q; want the harness to see session_env", log)
+	}
+}

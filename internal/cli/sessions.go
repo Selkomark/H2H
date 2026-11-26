@@ -70,6 +70,8 @@ func stateText(i session.Info) string {
 		return "waiting for you"
 	case i.State == session.Running && i.Attention.Kind == session.Quiet:
 		return "may be waiting for you"
+	case i.State == session.Running && i.Attention.Kind == session.NotTaken:
+		return "did not get the request"
 	case i.State == session.Exited && i.Error != "":
 		return "failed"
 	case i.State == session.Exited && i.ExitCode != nil && *i.ExitCode < 0:

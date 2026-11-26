@@ -4,7 +4,9 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/Selkomark/H2H/internal/session"
@@ -12,7 +14,9 @@ import (
 
 // A harness's state hooks run h2h-state in its session: "wait" when it
 // stops for the user, at a permission prompt or a question, and "go" when
-// it carries on. See docs/runtime.md.
+// it carries on. The "go" of a submitted prompt also tells H2H that a
+// request it typed arrived: the request's head is in the hook's input.
+// See docs/runtime.md.
 
 const (
 	// stateCommand is the internal command the state hooks run.
@@ -39,7 +43,11 @@ func state(args []string, in io.Reader, getenv func(string) string) error {
 	}
 	switch args[0] {
 	case stateGo:
-		return session.ClearWait(root, id)
+		err := session.ClearWait(root, id)
+		if n := requestIn(input); n > 0 {
+			err = errors.Join(err, session.Took(root, id, n))
+		}
+		return err
 	case stateWait:
 		kind, why := hookNotice(input)
 		if kinds := args[1:]; len(kinds) > 0 && kind != "" && !slices.Contains(kinds, kind) {
@@ -48,6 +56,45 @@ func state(args []string, in io.Reader, getenv func(string) string) error {
 		return session.SetWait(root, id, why)
 	}
 	return errors.New("usage: state wait [kind ...] | state go")
+}
+
+// requestRE finds the head of a request H2H typed, in the text a harness
+// submitted.
+var requestRE = regexp.MustCompile(strings.Replace(regexp.QuoteMeta(requestHead), "%d", `(\d+)`, 1))
+
+// requestIn returns the number of the request whose head is in a hook's
+// input, or 0. Harnesses name the field of a submitted prompt differently,
+// so every text in the input is searched.
+func requestIn(input []byte) int {
+	var in any
+	texts := []string{string(input)}
+	if json.Unmarshal(input, &in) == nil {
+		texts = stringsIn(in, nil)
+	}
+	for _, t := range texts {
+		if m := requestRE.FindStringSubmatch(t); m != nil {
+			n, _ := strconv.Atoi(m[1])
+			return n
+		}
+	}
+	return 0
+}
+
+// stringsIn appends every string in a decoded JSON value to texts.
+func stringsIn(v any, texts []string) []string {
+	switch v := v.(type) {
+	case string:
+		texts = append(texts, v)
+	case []any:
+		for _, item := range v {
+			texts = stringsIn(item, texts)
+		}
+	case map[string]any:
+		for _, item := range v {
+			texts = stringsIn(item, texts)
+		}
+	}
+	return texts
 }
 
 // hookNotice reads, from a hook's input, the kind of notification and what

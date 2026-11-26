@@ -126,6 +126,11 @@ type Harness struct {
 	// NoWaitSignal says the harness has no hook that tells H2H it waits for
 	// the user. H2H then goes by a silent terminal while a request is open.
 	NoWaitSignal bool `toml:"no_wait_signal"`
+	// SessionEnv, as NAME=value entries, is set for an interactive session.
+	// It turns off questions the harness would put on its screen by
+	// itself, such as one it asks when it starts: a request H2H types
+	// while such a question is open goes to the question and is lost.
+	SessionEnv []string `toml:"session_env"`
 }
 
 // Permissions say what a harness may do without stopping to ask. They
@@ -400,6 +405,11 @@ func (c Config) validate() error {
 		}
 		if h.Command == "" {
 			return fmt.Errorf("harness %q has no command", name)
+		}
+		for _, kv := range h.SessionEnv {
+			if v, _, ok := strings.Cut(kv, "="); !ok || !envRE.MatchString(v) {
+				return fmt.Errorf("harness %q: session_env entry %q is not NAME=value", name, kv)
+			}
 		}
 		for _, v := range h.PassEnv {
 			if !envRE.MatchString(v) {

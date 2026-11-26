@@ -201,6 +201,7 @@ A harness that stops to ask the user something, above all whether it may do a th
 | Shown as | Decided by | Certain? |
 |---|---|---|
 | waiting for you | The harness's own hooks run the session's `h2h-state` program: `h2h-state wait` when it stops for the user, and `h2h-state go` when it carries on | Yes |
+| did not get the request | A request H2H typed into a harness whose hooks run `h2h-state go` when a prompt is submitted has not been confirmed, and the terminal has produced no bytes for 8 seconds. The request never reached the prompt: something else on the harness's screen took the keys. Ask again once it is out of the way | Yes, for the harnesses whose hook carries the submitted prompt |
 | may be waiting for you | A request from H2H (`/ask`) is open, and the terminal has produced no bytes for 20 seconds. A harness at work keeps drawing, even while a slow command runs ([findings.md](findings.md), spike 01), so a silence that long almost always means it waits | No, and it is labelled so |
 
 Where it shows: the session's state, in amber, on the Harnesses tab's count in the console's header, in the Harnesses tab, the Map, `h2h ps` and the harness list the default harness is given; a line in the Console transcript, once per wait, saying what the harness waits for and to answer it with `/attach <id>`; in place of "working" while a command runs; and, for `h2h ask` run from the shell, a line under the request. `/ask` refuses to type a request into a harness that waits, because the text would land in its prompt. There is no bell.
@@ -214,6 +215,8 @@ The hooks are declared per harness in the config, as `state_args`, `state_env` a
 | Codex CLI | `-c hooks.<Event>=...` overrides, with `--dangerously-bypass-hook-trust`, since H2H writes these hooks itself | `PermissionRequest`, which fires only when Codex is about to ask | `PostToolUse`, `UserPromptSubmit`, `Stop` | 0.171.0: the hooks run as given and the go hook clears a wait; the prompt itself was measured in spike 01 on the same version |
 | OpenCode | None: `no_wait_signal = true` | Silence while a request is open | Output | 2.4.1: its plugin loads from `OPENCODE_CONFIG_DIR`, but its event hook received no events in a session, so there is no signal to use yet |
 | Grok | None: `no_wait_signal = true`. It has a `Notification` hook, but no way was found to give hooks to an interactive session at launch, and H2H installs nothing in `~/.grok` | Silence while a request is open | Output | 1.0.92: help and documentation only |
+
+The `go` of a submitted prompt also confirms a request: every request begins "Request N, from the user of H2H through its console", and `h2h-state go` looks for that text in what the hook was given. It searches every text in the hook's input, since harnesses name the field of the prompt differently, and records request N as taken beside its report. `h2h ask` then says the harness took the request. A harness busy with earlier work holds a typed request until it is done, but keeps drawing meanwhile, so a request is said not to have arrived only once the terminal falls silent. OpenCode and Grok have no hook, so for them H2H cannot tell a request that never arrived from a harness that waits, and says only that it may be waiting.
 
 A wait the hooks recorded is cleared by the harness's own "carries on" events. Answering by attaching produces one of them. When a session is removed, its wait record goes with it.
 
@@ -477,6 +480,11 @@ Two guards, because typing ends with Enter and H2H cannot yet see what is on the
 
 - **A request is typed only where H2H knows no trust question can be waiting.** At that question Enter answers it, which is the user's decision, and in some harnesses it answers yes. H2H reads the harness's trust record first, as doctor does. It types if the record says the project is trusted, or the config says the harness asks no such question (`no_trust_question`). In every other case, including no trust settings or a record it cannot read, it refuses with a pointer to `attach`. This rests on the record being right: H2H does not yet get a signal that a session is ready for a request.
 - **A harness is left alone for its first ten seconds,** while it draws its screen.
+
+A question the harness puts on its screen by itself can still take the keys. On 2026-11-26, Copilot CLI 1.0.116 asked, the first time it found itself in VS Code, whether to set up a shift+enter key binding. The Escape that begins a pasted request answered it "No", and the request was lost while H2H said Copilot "may be waiting". Two things now stand against this:
+
+- **`session_env` turns such questions off** for a session, where the harness has a way: Copilot's entry sets `COPILOT_SETUP_TERMINAL=false`. Checked on Copilot 1.0.116 in a pseudo-terminal, with Cursor detected and a scratch `COPILOT_HOME`: without the variable the question opened and a pasted request did not reach the prompt; with it there was no question and the request did. No such question is known for the other shipped harnesses, so their entries have none.
+- **The prompt hook confirms that a request arrived,** and H2H says when it did not, as [did not get the request](#waiting-for-you).
 
 A harness that stops to ask for permission in the middle of the work does not stall unseen where its permission hook is wired to H2H: the request is answered from the project's rules, or shown as a dialog in the console; see [permissions.md](permissions.md#what-is-built). A harness that is not wired stops at a prompt in its own terminal, and the report does not come until the user attaches and answers.
 

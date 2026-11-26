@@ -300,8 +300,10 @@ func ReportDir(root, id string) (string, error) {
 func ReportPath(dir string, n int) string { return filepath.Join(dir, fmt.Sprintf("%d.txt", n)) }
 
 // NewRequest reserves the next request number of a session, so that the
-// report to it cannot be mistaken for the report to another.
-func NewRequest(dir string) (int, error) {
+// report to it cannot be mistaken for the report to another. confirmed
+// says that the harness's hooks tell H2H when it takes the request; see
+// Took.
+func NewRequest(dir string, confirmed bool) (int, error) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return 0, err
@@ -313,22 +315,54 @@ func NewRequest(dir string) (int, error) {
 			last = n
 		}
 	}
+	var mark []byte
+	if confirmed {
+		mark = []byte(confirmMark + "\n")
+	}
 	for n := last + 1; ; n++ {
-		f, err := os.OpenFile(filepath.Join(dir, fmt.Sprintf("%d.asked", n)), os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+		f, err := os.OpenFile(askedPath(dir, n), os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
 		if errors.Is(err, fs.ErrExist) {
 			continue
 		}
 		if err != nil {
 			return 0, err
 		}
-		return n, f.Close()
+		_, err = f.Write(mark)
+		return n, errors.Join(err, f.Close())
 	}
+}
+
+// confirmMark is what a request's record holds when the harness's hooks
+// tell H2H that it took the request.
+const confirmMark = "confirmed by hook"
+
+func askedPath(dir string, n int) string { return filepath.Join(dir, fmt.Sprintf("%d.asked", n)) }
+func takenPath(dir string, n int) string { return filepath.Join(dir, fmt.Sprintf("%d.taken", n)) }
+
+// Took records that a session's harness took request n: the request
+// reached its prompt and was submitted. A request that was not made is
+// ignored.
+func Took(root, id string, n int) error {
+	dir, err := ReportDir(root, id)
+	if err != nil {
+		return err
+	}
+	if _, err := os.Stat(askedPath(dir, n)); err != nil {
+		return nil
+	}
+	return os.WriteFile(takenPath(dir, n), nil, 0o600)
+}
+
+// Taken reports whether a session's harness took request n.
+func Taken(dir string, n int) bool {
+	_, err := os.Stat(takenPath(dir, n))
+	return err == nil
 }
 
 // Report stores the report to request n, atomically, so a reader never
 // sees half of it. A request that was not made is refused.
 func Report(dir string, n int, text string) error {
-	if _, err := os.Stat(filepath.Join(dir, fmt.Sprintf("%d.asked", n))); err != nil {
+	if _, err := os.Stat(askedPath(dir, n)); err != nil {
 		return fmt.Errorf("there is no request %d to report on", n)
 	}
 	tmp := fmt.Sprintf("%s.%d.tmp", ReportPath(dir, n), os.Getpid())

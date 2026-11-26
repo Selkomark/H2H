@@ -168,3 +168,111 @@ func TestLoadWorksOutAttention(t *testing.T) {
 		t.Errorf("Load = %+v, %v; want the session waiting", got.Attention, err)
 	}
 }
+
+// askConfirmed makes request n of a session, made at the given time, for a
+// harness whose hooks say when it takes a request.
+func askConfirmed(t *testing.T, root, id string, n int, at time.Time) string {
+	t.Helper()
+	ask(t, root, id, n, at, false)
+	dir, err := ReportDir(root, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	asked := filepath.Join(dir, strconv.Itoa(n)+".asked")
+	if err := os.WriteFile(asked, []byte(confirmMark+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(asked, at, at); err != nil {
+		t.Fatal(err)
+	}
+	return dir
+}
+
+// A request typed into a harness whose hooks confirm a submitted prompt,
+// and never confirmed, did not arrive: H2H says so instead of that the
+// harness may be waiting.
+func TestNotTakenWhenTheHookNeverConfirms(t *testing.T) {
+	now := time.Now()
+	silent := now.Add(-TakeAfter - time.Second)
+	drawing := now.Add(-TakeAfter / 4)
+
+	// Typed, unconfirmed, and the terminal silent since.
+	root, info := running(t, silent)
+	askConfirmed(t, root, info.ID, 1, silent)
+	if a := attend(root, info, now); a.Kind != NotTaken || a.Request != 1 {
+		t.Errorf("unconfirmed and silent: %+v, want not taken, request 1", a)
+	}
+
+	// Unconfirmed, but the harness is drawing: it may be busy with earlier
+	// work and hold the request until it is done.
+	root, info = running(t, drawing)
+	askConfirmed(t, root, info.ID, 1, silent)
+	if a := attend(root, info, now); a.Kind != NoAttention {
+		t.Errorf("unconfirmed while drawing: %+v, want no attention", a)
+	}
+
+	// Confirmed: it took the request, and silence means what it did.
+	root, info = running(t, silent)
+	askConfirmed(t, root, info.ID, 1, silent)
+	if err := Took(root, info.ID, 1); err != nil {
+		t.Fatal(err)
+	}
+	if a := attend(root, info, now); a.Kind != NoAttention {
+		t.Errorf("taken and silent for less than %s: %+v, want no attention", QuietAfter, a)
+	}
+	long := now.Add(-QuietAfter - time.Second)
+	root, info = running(t, long)
+	askConfirmed(t, root, info.ID, 1, long)
+	if err := Took(root, info.ID, 1); err != nil {
+		t.Fatal(err)
+	}
+	if a := attend(root, info, now); a.Kind != Quiet {
+		t.Errorf("taken and silent for %s: %+v, want quiet", QuietAfter, a)
+	}
+
+	// A harness whose hooks say nothing of prompts is never said not to
+	// have taken a request.
+	root, info = running(t, long)
+	ask(t, root, info.ID, 1, long, false)
+	if a := attend(root, info, now); a.Kind != Quiet {
+		t.Errorf("unconfirmable request, silent: %+v, want quiet", a)
+	}
+
+	// A hook outranks it.
+	root, info = running(t, silent)
+	askConfirmed(t, root, info.ID, 1, silent)
+	if err := SetWait(root, info.ID, "Permission needed"); err != nil {
+		t.Fatal(err)
+	}
+	if a := attend(root, info, now); a.Kind != Waiting {
+		t.Errorf("unconfirmed with a wait: %+v, want waiting", a)
+	}
+}
+
+func TestNewRequestMarksWhatHooksConfirmAndTookIgnoresOthers(t *testing.T) {
+	root, info := running(t, time.Now())
+	dir, err := ReportDir(root, info.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	for want, confirmed := range []bool{false, true} {
+		n, err := NewRequest(dir, confirmed)
+		if err != nil || n != want+1 {
+			t.Fatalf("NewRequest = %d, %v; want %d", n, err, want+1)
+		}
+		if req, _ := openRequest(root, info.ID); req.n != n || req.confirmed != confirmed || req.taken {
+			t.Errorf("request %d: %+v; want confirmed %v and not taken", n, req, confirmed)
+		}
+	}
+	if err := Took(root, info.ID, 9); err != nil || Taken(dir, 9) {
+		t.Errorf("Took for a request never made: %v, taken %v; want it ignored", err, Taken(dir, 9))
+	}
+	if err := Took(root, info.ID, 2); err != nil || !Taken(dir, 2) {
+		t.Errorf("Took(2): %v, taken %v", err, Taken(dir, 2))
+	}
+	// A request number is not reused after a take.
+	if n, err := NewRequest(dir, true); err != nil || n != 3 {
+		t.Errorf("NewRequest after a take = %d, %v; want 3", n, err)
+	}
+}

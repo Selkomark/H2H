@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"slices"
@@ -327,7 +328,7 @@ func TestSafeToTypeSaysNoUnlessItKnows(t *testing.T) {
 				t.Fatal(err)
 			}
 		}
-		err := e.safeToType(session.Info{ID: "fake-1", Harness: "fake"})
+		_, err := e.safeToType(session.Info{ID: "fake-1", Harness: "fake"})
 		if (err == nil) != tt.safe {
 			t.Errorf("%s: safeToType = %v, want safe %t", tt.name, err, tt.safe)
 		}
@@ -351,5 +352,69 @@ func TestAskDoesNotTypeIntoAHarnessThatDoesNotTrustTheProject(t *testing.T) {
 			t.Errorf("a request was made although nothing could be typed: %v", entries)
 		}
 		_ = os.RemoveAll(dir)
+	}
+}
+
+// A harness whose hooks run "go" for a submitted prompt confirms that the
+// request typed into it arrived, and the user is told.
+func TestAskTellsWhenTheHarnessTookTheRequest(t *testing.T) {
+	e, out := doctorEnv(t, "default_harness = \"fake\"\n[harness.fake]\ncommand = \"sh\"\nno_trust_question = true\nargs = [\"-c\", \"cat > typed.txt\"]\nstate_args = [\"{state}\"]\n")
+	e.ui = &scriptedUI{}
+	info, err := session.Create(e.root, "fake")
+	if err != nil {
+		t.Fatal(err)
+	}
+	info.Workspace = t.TempDir()
+	info.Started = time.Now().Add(-time.Minute)
+	if err := session.Save(e.root, info); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() { done <- keeper.Run(e.root, info.ID) }()
+	for deadline := time.Now().Add(5 * time.Second); ; time.Sleep(20 * time.Millisecond) {
+		if now, _ := session.Load(e.root, info.ID); now.State == session.Running {
+			info = now
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the session did not start")
+		}
+	}
+	defer func() {
+		_ = syscall.Kill(-info.HarnessPID, syscall.SIGKILL)
+		<-done
+	}()
+	dir, err := session.ReportDir(e.root, info.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(dir)
+
+	// The harness submits what was typed: its hook gets the prompt, as
+	// JSON, and only then does it report.
+	env := map[string]string{"H2H_ROOT": e.root, "H2H_SESSION": info.ID}
+	getenv := func(k string) string { return env[k] }
+	go func() {
+		var typed []byte
+		for !strings.Contains(string(typed), "H2H_ANSWER") {
+			time.Sleep(20 * time.Millisecond)
+			typed, _ = os.ReadFile(filepath.Join(info.Workspace, "typed.txt"))
+		}
+		prompt, _ := json.Marshal(map[string]string{"hook_event_name": "UserPromptSubmit", "prompt": string(typed)})
+		_ = state([]string{"go"}, bytes.NewReader(prompt), getenv)
+		for !session.Taken(dir, 1) {
+			time.Sleep(20 * time.Millisecond)
+		}
+		// Typing takes about a second after the text is in, so ask sees
+		// the take only after that.
+		time.Sleep(2 * time.Second)
+		_ = report([]string{"1"}, strings.NewReader("Done.\n"), getenv)
+	}()
+
+	if err := e.askHarness(context.Background(), []string{info.ID, "fix", "it"}); err != nil {
+		t.Fatalf("ask: %v\n%s", err, out)
+	}
+	if !strings.Contains(out.String(), info.ID+" took the request and is working on it.") || !strings.Contains(out.String(), "Done.") {
+		t.Errorf("want the take and the report told:\n%s", out)
 	}
 }
