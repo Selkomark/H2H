@@ -133,8 +133,8 @@ func (g Glow) glowFrameOf(page []string, width int, side, below string, since ti
 	cell := func(text string, place float64) string {
 		c, spot := g.at(place, since)
 		// The line itself burns a little whiter than its colour.
-		c = blend(c, hexLight(g.Light), 0.1+0.6*spot+0.1*breath)
-		line := blend(back, c, 0.2+0.6*strength)
+		c = blend(c, hexLight(g.Light), 0.12+0.85*spot+0.14*breath)
+		line := blend(back, c, 0.25+0.75*strength)
 		return lipgloss.NewStyle().Bold(true).Foreground(line.color()).Render(heavy.Replace(text))
 	}
 	rule := func(runes []rune, place func(x int) float64) string {
