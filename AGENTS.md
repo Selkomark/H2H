@@ -35,6 +35,7 @@ To put `h2h` on your PATH, build with `-o` pointing at a directory that is on it
 | `internal/harness` | Starting and talking to harnesses, from their config entries |
 | `internal/config` | Config schema and validation. `default.toml` is the shipped config, and its comments describe the settings. `upgrade.go` brings older configs up to date |
 | `internal/policy` | Permission decisions, with no I/O |
+| `internal/acp` | Demo, on `demo/acp` only: a client for the Agent Client Protocol ([docs/acp.md](docs/acp.md)) |
 | `internal/workspace` | Git worktrees, landing work, ignore rules |
 
 The tree in the `go-architecture` skill is a map of where code should go. It includes packages that do not exist yet.

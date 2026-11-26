@@ -204,6 +204,7 @@ func commands() []command {
 		{"land", "[id]", "Bring a harness's work from its workspace onto the project's branch", (*env).land},
 		{"map", "", "Draw the domains and the flow of work between them", (*env).mapCmd},
 		{"ask", "<id | harness | domain> <question>", "Hand a request to a running harness and wait for its report", (*env).askHarness},
+		{"acp", "[harness]", "Demo: drive a harness over ACP, with H2H drawing its work and answering for permissions", (*env).acpCmd},
 		{"sessions", "[rm <session> | rm all]", "List the saved console sessions, or remove them", (*env).sessions},
 		{"resume", "[session]", "In the console, switch to a saved session", (*env).resume},
 		{"cls", "", "In the console, empty the page and carry on in the same session and conversation", (*env).cls},

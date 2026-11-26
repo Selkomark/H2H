@@ -333,6 +333,7 @@ Copying uses the system clipboard, and where there is none, as over SSH, asks th
 | `h2h map` | Draws the domains as boxes and the flow of work between them as arrows, with each domain's setup under the drawing. In the console, `/map` opens the Map tab instead, where a domain is selected and inspected; see [responsibility-map.md](responsibility-map.md) | Built |
 | `h2h install [--update] [harness ...]` | Installs missing harnesses at their latest version, or with `--update` offers newer versions of the installed ones; see [Install](#install) | Built |
 | `h2h ask <id \| harness \| domain> <request>` | Hands a request to a running harness in its own session and prints its report; see [Delegating to a running harness](#delegating-to-a-running-harness) | Built |
+| `h2h acp [harness]` | Drives a harness over the Agent Client Protocol in place of its terminal: H2H draws its work and answers its permission requests from the rules or by asking; see [acp.md](acp.md) | Demo, on the `demo/acp` branch |
 | `h2h doctor` | Checks that everything H2H needs is in place, and exits with an error if something is not; see [Doctor](#doctor) | Built |
 | `h2h config [show \| --manual]` | Sets the config up in a conversation with the default harness; `show` prints it and `--manual` opens it in the user's editor; see [configuration.md](configuration.md) | Built |
 | `h2h serve --port <n>` | Serves the web UI, including a terminal in the browser for each session | Later |

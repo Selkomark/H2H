@@ -83,6 +83,7 @@ Type `/` to see the commands. There are tabs for the **Console**, a **Map** of y
 | `/stop [id \| all]` | `h2h stop` | Stops agents |
 | `/rm [id \| all]` | `h2h rm` | Removes agents and their copies of the project. It asks before discarding work |
 | `/map` | `h2h map` | Shows who owns what, and the order of work |
+| `/acp [agent]` | `h2h acp` | Demo, on the `demo/acp` branch only: talks to an agent over ACP, with H2H drawing its work and answering its permission requests; see [docs/acp.md](docs/acp.md) |
 | `/config` | `h2h config` | Sets up your team in a conversation |
 | `/doctor` | `h2h doctor` | Checks your setup |
 | `/install [--update]` | `h2h install` | Installs or updates agents |

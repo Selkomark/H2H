@@ -51,8 +51,9 @@ Direct dependencies, checked by hand on 2026-11-23 from the licence file in each
 | `github.com/atotto/clipboard` | v0.1.4 | BSD 3-Clause | Copying selected text to the system clipboard |
 | `github.com/aymanbagabas/go-osc52/v2` | v2.0.1 | MIT | Copying through the terminal where the system has no clipboard program, as over SSH |
 | `github.com/muesli/termenv` | v0.16.0 | MIT | Telling whether the terminal has colour, for the glow of the console's frame; and tests that switch colour on |
+| `github.com/muesli/cancelreader` | v0.2.2 | MIT | Letting go of the terminal's input when the ACP demo returns to the console. Only on the `demo/acp` branch |
 
-The last four were added on 2026-11-24. They were already in the binary as dependencies of the libraries above, and are now used directly.
+The four before it were added on 2026-11-24, and `cancelreader` on 2026-11-26. They were already in the binary as dependencies of the libraries above, and are now used directly.
 
 Everything they pull into the binary is MIT or BSD 3-Clause as well. The full list is in `go.mod`.
 

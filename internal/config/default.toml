@@ -96,6 +96,13 @@ default_harness = "claude"
 #             the roles as AGENTS.md, for harnesses that read instructions
 #             only from files. Each harness below uses the option it has
 #             for standing instructions, so all of them get the same role.
+#   acp_command, acp_env
+#             a demo, on the demo/acp branch: the whole command, program
+#             first, that runs the harness as an Agent Client Protocol
+#             agent, and NAME=value entries set for it. "/acp" then drives
+#             the harness over ACP rather than through its terminal, and
+#             H2H draws what it does and answers what it asks permission
+#             for. A harness without acp_command is not driven over ACP
 
 [harness.claude]
 command = "claude"
@@ -180,6 +187,10 @@ install_command = ["npm", "install", "-g", "@opencode/cli@latest"]
 latest_command = ["npm", "view", "@opencode/cli", "version"]
 no_trust_question = true
 pass_env = ["OPENCODE_API_KEY"]
+# Over ACP, OpenCode asks before it runs a command, edits a file or fetches
+# a page, so the question comes to H2H, which answers from [permissions].
+acp_command = ["opencode", "acp"]
+acp_env = ['OPENCODE_CONFIG_CONTENT={"permission":{"bash":"ask","edit":"ask","webfetch":"ask"}}']
 
 # Grok. Its read-only runs name the permission mode, because a user's own
 # setting may approve everything, and leave it only its reading tools, with

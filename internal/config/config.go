@@ -131,7 +131,16 @@ type Harness struct {
 	// itself, such as one it asks when it starts: a request H2H types
 	// while such a question is open goes to the question and is lost.
 	SessionEnv []string `toml:"session_env"`
+	// AcpCommand is the whole command, program first, that runs the harness
+	// as an Agent Client Protocol agent, for "h2h acp". AcpEnv, as
+	// NAME=value entries, is set for it. A harness without AcpCommand is
+	// not driven over ACP. See docs/acp.md.
+	AcpCommand []string `toml:"acp_command"`
+	AcpEnv     []string `toml:"acp_env"`
 }
+
+// SpeaksACP reports whether the harness can be driven over ACP.
+func (h Harness) SpeaksACP() bool { return len(h.AcpCommand) > 0 }
 
 // Permissions say what a harness may do without stopping to ask. They
 // apply to harnesses that have permit_args. See docs/permissions.md.
@@ -406,10 +415,15 @@ func (c Config) validate() error {
 		if h.Command == "" {
 			return fmt.Errorf("harness %q has no command", name)
 		}
-		for _, kv := range h.SessionEnv {
-			if v, _, ok := strings.Cut(kv, "="); !ok || !envRE.MatchString(v) {
-				return fmt.Errorf("harness %q: session_env entry %q is not NAME=value", name, kv)
+		for key, list := range map[string][]string{"session_env": h.SessionEnv, "acp_env": h.AcpEnv} {
+			for _, kv := range list {
+				if v, _, ok := strings.Cut(kv, "="); !ok || !envRE.MatchString(v) {
+					return fmt.Errorf("harness %q: %s entry %q is not NAME=value", name, key, kv)
+				}
 			}
+		}
+		if h.SpeaksACP() && strings.TrimSpace(h.AcpCommand[0]) == "" {
+			return fmt.Errorf("harness %q: acp_command must start with a program", name)
 		}
 		for _, v := range h.PassEnv {
 			if !envRE.MatchString(v) {
