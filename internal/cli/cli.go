@@ -364,7 +364,7 @@ func (e *env) console(resume bool, resumeID string) error {
 			return err // nil when the user cancelled the choice
 		}
 		e.here.current = saved
-		restore = &console.State{Transcript: saved.Transcript, History: saved.History, Starts: saved.Starts}
+		restore = &console.State{Transcript: saved.Transcript, History: saved.History, Starts: saved.Starts, LastCommand: saved.latestCommand()}
 	}
 	harnessName := "the default harness"
 	cfg, cfgErr := config.Load(e.root)

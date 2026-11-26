@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/Selkomark/H2H/internal/console"
 	"github.com/Selkomark/H2H/internal/session"
@@ -30,12 +31,13 @@ const maxPicked = 15
 
 // consoleSession is the saved record of one console session.
 type consoleSession struct {
-	ID         string    `json:"id"`
-	Started    time.Time `json:"started"`
-	Updated    time.Time `json:"updated"`
-	Transcript string    `json:"transcript"`
-	History    []string  `json:"history"`
-	Starts     []int     `json:"starts"`
+	ID          string    `json:"id"`
+	Started     time.Time `json:"started"`
+	Updated     time.Time `json:"updated"`
+	Transcript  string    `json:"transcript"`
+	History     []string  `json:"history"`
+	Starts      []int     `json:"starts"`
+	LastCommand *string   `json:"last_command,omitempty"`
 	// Talk is the session's conversation with the default harness, so
 	// resuming the session continues it. Nil until the first message.
 	Talk *talk `json:"conversation,omitempty"`
@@ -146,6 +148,21 @@ func (s consoleSession) summary() string {
 		return ""
 	}
 	return s.History[0]
+}
+
+// latestCommand falls back to entered history for sessions saved before
+// commands were tracked separately. View switches were not run commands.
+func (s consoleSession) latestCommand() string {
+	if s.LastCommand != nil {
+		return *s.LastCommand
+	}
+	for i := len(s.History) - 1; i >= 0; i-- {
+		line := strings.TrimSpace(s.History[i])
+		if strings.HasPrefix(line, "/") && line != "/map" && line != "/ps" && line != "/sessions" {
+			return line
+		}
+	}
+	return ""
 }
 
 // sessionToResume finds the session "h2h --resume" should open: the one
@@ -327,6 +344,7 @@ func (o *openSession) save(s console.State) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	o.current.Transcript, o.current.History, o.current.Starts, o.current.Updated = s.Transcript, s.History, s.Starts, time.Now()
+	o.current.LastCommand = &s.LastCommand
 	if saveConsoleSession(o.root, o.current) == nil {
 		o.saved = true
 	}
@@ -383,7 +401,7 @@ func (e *env) resume(_ context.Context, args []string) error {
 		return err
 	}
 	e.here.switchTo(s)
-	e.ui.Load(console.State{Transcript: s.Transcript, History: s.History, Starts: s.Starts}, e.resumedNote(s))
+	e.ui.Load(console.State{Transcript: s.Transcript, History: s.History, Starts: s.Starts, LastCommand: s.latestCommand()}, e.resumedNote(s))
 	return nil
 }
 
@@ -401,7 +419,7 @@ func (e *env) consoleSessionsView() console.Table {
 		if s.ID == here {
 			used = "this one"
 		}
-		rows = append(rows, []string{s.ID, used, fmt.Sprint(len(s.History)), displayLine(s.summary(), 60)})
+		rows = append(rows, []string{s.ID, used, fmt.Sprint(len(s.History)), ""})
 	}
 	lines := table([]string{"SESSION", "LAST USED", "LINES", "FIRST LINE"}, rows, e.st.dim, func(row, col int) lipgloss.Style {
 		switch {
@@ -417,9 +435,24 @@ func (e *env) consoleSessionsView() console.Table {
 		Empty:  e.st.dim.Render("No saved sessions yet. This one is saved once you enter a line."),
 	}
 	for n, s := range saved {
-		t.Rows = append(t.Rows, console.Row{ID: s.ID, Text: lines[n+1]})
+		t.Rows = append(t.Rows, console.Row{
+			ID: s.ID, Text: lines[n+1],
+			Label: sessionListText(s.summary()), Detail: sessionListText(s.latestCommand()),
+		})
 	}
 	return t
+}
+
+func sessionListText(line string) string {
+	line = ansi.Strip(line)
+	line = strings.Join(strings.Fields(line), " ")
+	line = strings.Map(func(r rune) rune {
+		if r < 32 || r == 127 {
+			return -1
+		}
+		return r
+	}, line)
+	return ansi.Truncate(line, 60, "…")
 }
 
 // cls empties the console's page. The session stays the same one, with

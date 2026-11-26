@@ -533,7 +533,7 @@ A console session is written to the state directory once the user has entered a 
 | `h2h --resume`, or `-r` | Resumes the only saved session, or with more than one asks which, showing the latest 15 with when each was last used and its first line |
 | `h2h --resume <session>` | Resumes that one |
 | `h2h sessions` | Lists the saved sessions, the latest used first |
-| `/sessions` in the console | Opens the Sessions tab: the same list, updated live, with the session on screen marked "this one". The arrow keys or a click select a session, Enter jumps into it, and `d` deletes it after a confirmation |
+| `/sessions` in the console | Opens the Sessions tab: the same list, updated live, with the session on screen marked "this one". Each row includes the latest submitted console command beside the first line when there is room. For older saved sessions it is estimated from entered history, which cannot include view actions. The arrow keys or a click select a session, Enter jumps into it, and `d` deletes it after a confirmation |
 | `/resume <session>` in the console | Jumps into that session. This is what Enter on the Sessions tab runs |
 | `/cls` in the console | Empties the page and carries on in the same session, and in the same conversation with the default harness. The lines entered so far can still be recalled with the Up key, and the session is saved with its clean page, so resuming it later does not bring the old output back. Running harnesses are not touched |
 | `/clear` in the console | Starts a new conversation with the default harness, in the same session; the page stays. See [One conversation per console session](#one-conversation-per-console-session) |

@@ -13,6 +13,7 @@ import (
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 )
 
 const (
@@ -132,8 +133,9 @@ type model struct {
 	selected    int
 	hidden      bool // suggestions dismissed until the line changes
 
-	history []string
-	histPos int // index into history; len(history) means the line being typed
+	history     []string
+	lastCommand string
+	histPos     int // index into history; len(history) means the line being typed
 
 	// busy says a command is running, and cancel stops every one that
 	// is. More than one can run: the input stays open while one works, and
@@ -195,6 +197,7 @@ func (m *model) restore(s State, note string) {
 	m.transcript += note
 	m.owners = make([]int, len(m.starts)) // what was restored belongs to no command running now
 	m.history = append([]string{}, s.History...)
+	m.lastCommand = s.LastCommand
 	m.histPos = len(m.history)
 }
 
@@ -207,7 +210,7 @@ func (m *model) save() {
 	if len(history) > maxHistory {
 		history = history[len(history)-maxHistory:]
 	}
-	m.o.Save(State{Transcript: m.transcript, History: append([]string{}, history...), Starts: append([]int{}, m.starts...)})
+	m.o.Save(State{Transcript: m.transcript, History: append([]string{}, history...), Starts: append([]int{}, m.starts...), LastCommand: m.lastCommand})
 }
 
 // out is the terminal the console draws on, or nil when it has none, as
@@ -715,6 +718,10 @@ func (m *model) submit(line string) tea.Cmd {
 	number, ui := m.commands, m.ui
 	m.begin(number)
 	m.print(m.o.Theme.Accent.Render(promptText+strings.ReplaceAll(line, "\n", "\n"+continuation)) + "\n")
+	if !isMessage(line) {
+		m.lastCommand = line
+		m.save()
+	}
 
 	// The command gets a UI of its own, which marks what it prints.
 	if p, ok := m.ui.(*programUI); ok {
@@ -1293,16 +1300,40 @@ func (m *model) viewText() string {
 	lines := []string{"  " + t.Header}
 	at := m.selection()
 	for n, r := range t.Rows {
+		text := m.rowText(r)
 		if n == at {
-			lines = append(lines, th.Accent.Render("› ")+r.Text)
+			lines = append(lines, th.Accent.Render("› ")+text)
 		} else {
-			lines = append(lines, "  "+r.Text)
+			lines = append(lines, "  "+text)
 		}
 	}
 	if m.notice != "" {
 		lines = append(lines, "", m.notice)
 	}
 	return strings.Join(lines, "\n")
+}
+
+// rowText shares the available space between a label and its detail.
+func (m *model) rowText(r Row) string {
+	if r.Label == "" && r.Detail == "" {
+		return r.Text
+	}
+	room := max(0, m.width-chromeWidth-2-ansi.StringWidth(r.Text))
+	label := r.Label
+	if r.Detail == "" || room < 12 {
+		return r.Text + ansi.Truncate(label, room, ellipsis)
+	}
+	const separator = " · "
+	const prefix = "last: "
+	available := room - ansi.StringWidth(separator+prefix)
+	labelWidth := min(ansi.StringWidth(label), (available+1)/2)
+	detailWidth := min(ansi.StringWidth(r.Detail), available-labelWidth)
+	labelWidth = min(ansi.StringWidth(label), available-detailWidth)
+	if detailWidth < 1 || labelWidth < 1 {
+		return r.Text + ansi.Truncate(label, room, ellipsis)
+	}
+	return r.Text + ansi.Truncate(label, labelWidth, ellipsis) +
+		m.o.Theme.Dim.Render(separator+prefix+ansi.Truncate(r.Detail, detailWidth, ellipsis))
 }
 
 // viewHint lists the keys of the view on screen.

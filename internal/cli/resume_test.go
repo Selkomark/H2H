@@ -165,6 +165,38 @@ func TestResumeSwitchesTheConsoleSession(t *testing.T) {
 	}
 }
 
+func TestSessionsViewLatestCommand(t *testing.T) {
+	e, _ := doctorEnv(t, "")
+	at := time.Date(2026, 11, 24, 9, 0, 0, 0, time.Local)
+	s := newConsoleSession(e.root, at)
+	s.History = []string{"First\nline", "/help", "a message", "/sessions"}
+	s.Updated = at
+	if err := saveConsoleSession(e.root, s); err != nil {
+		t.Fatal(err)
+	}
+	e.here = &openSession{root: e.root, current: s}
+	view := e.consoleSessionsView()
+	if len(view.Rows) != 1 || view.Rows[0].Label != "First line" || view.Rows[0].Detail != "/help" {
+		t.Fatalf("legacy session rows = %+v", view.Rows)
+	}
+	e.here.save(console.State{History: s.History, LastCommand: "/stop ui-1\n  now"})
+	view = e.consoleSessionsView()
+	if len(view.Rows) != 1 || view.Rows[0].Label != "First line" || view.Rows[0].Detail != "/stop ui-1 now" {
+		t.Fatalf("updated session rows = %+v", view.Rows)
+	}
+	loaded, err := loadConsoleSession(e.root, s.ID)
+	if err != nil || loaded.latestCommand() != "/stop ui-1\n  now" {
+		t.Fatalf("stored command = %q, err = %v", loaded.latestCommand(), err)
+	}
+	e.here.save(console.State{History: s.History})
+	if got := e.consoleSessionsView().Rows[0].Detail; got != "" {
+		t.Errorf("tracked session without a command shows %q", got)
+	}
+	if got := sessionListText("a\x1b[2Jb\n界"); got != "ab 界" {
+		t.Errorf("sessionListText = %q", got)
+	}
+}
+
 func TestCls(t *testing.T) {
 	e, _ := doctorEnv(t, "")
 	ui := &scriptedUI{}

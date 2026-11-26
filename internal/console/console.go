@@ -90,8 +90,10 @@ type Table struct {
 
 // Row is one selectable line of a view.
 type Row struct {
-	ID   string // what an action is applied to; stable between refreshes
-	Text string
+	ID     string // what an action is applied to; stable between refreshes
+	Text   string
+	Label  string // optional text after the fixed columns
+	Detail string // optional secondary text, shortened alongside Label
 }
 
 // Action is a key that acts on the selected row of a view, by running a
@@ -110,9 +112,10 @@ type Action struct {
 // State is what a console session consists of: enough to close the
 // console and carry on later where it was left.
 type State struct {
-	Transcript string   // everything on the page, with its colours
-	History    []string // the lines the user entered, oldest first
-	Starts     []int    // where each message starts in the transcript, in bytes
+	Transcript  string   // everything on the page, with its colours
+	History     []string // the lines the user entered, oldest first
+	Starts      []int    // where each message starts in the transcript, in bytes
+	LastCommand string   // latest console command submitted, including view actions
 }
 
 // Request is a question that no command of the user's asked: something

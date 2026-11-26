@@ -10,6 +10,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 )
 
 var testCommands = []Suggestion{
@@ -86,6 +87,44 @@ func TestSanitize(t *testing.T) {
 				t.Errorf("sanitize(%q) = %q, want %q", tt.in, got, tt.want)
 			}
 		})
+	}
+}
+
+func TestSessionRowFitsAndShowsLabelAndCommand(t *testing.T) {
+	m := newTestModel(func(string) bool { return false })
+	r := Row{Text: "id  ", Label: "A long first label 界界界", Detail: "/stop 界界界 long-command"}
+	for _, width := range []int{20, 35, 80} {
+		m.width = width
+		got := ansi.Strip(m.rowText(r))
+		if ansi.StringWidth(got) > width-chromeWidth-2 {
+			t.Errorf("width %d: row too wide: %q", width, got)
+		}
+		if width >= 35 && (!strings.Contains(got, "A long") || !strings.Contains(got, "last: /stop")) {
+			t.Errorf("width %d: missing label or command: %q", width, got)
+		}
+	}
+	m.width = 80
+	r.Detail = ""
+	if got := m.rowText(r); strings.Contains(got, "last:") || !strings.Contains(got, r.Label) {
+		t.Errorf("without a command: %q", got)
+	}
+}
+
+func TestSubmittedCommandsAreSavedAndRestored(t *testing.T) {
+	m := newTestModel(func(string) bool { return false })
+	var saved State
+	m.o.Save = func(s State) { saved = s }
+	m.remember("first message")
+	m.tab = 1
+	m.runAction(m.o.Views[0].Actions[0])
+	if saved.LastCommand != "/attach claude-1" {
+		t.Fatalf("saved command = %q", saved.LastCommand)
+	}
+	m.restore(State{History: []string{"older"}, LastCommand: "/help"}, "")
+	m.submit("a message")
+	m.save()
+	if saved.LastCommand != "/help" {
+		t.Errorf("message replaced restored command: %q", saved.LastCommand)
 	}
 }
 
