@@ -114,6 +114,11 @@ type model struct {
 	spin  spinner.Model
 	// glowFor is how long the glow of the frame has been running.
 	glowFor time.Duration
+	// margin is the terminal background the glow set, or "" when it is
+	// the terminal's own; see syncMargin. handedOver says a harness or an
+	// editor has the terminal, which must not keep the glow's colour.
+	margin     string
+	handedOver bool
 
 	width, height int
 	transcript    string
@@ -287,6 +292,7 @@ func (m *model) pollStatus() tea.Cmd {
 func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	// Whatever brought the view back to the bottom, nothing is unseen there.
 	defer m.settle()
+	defer m.syncMargin()
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
@@ -311,6 +317,7 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(claimMouse, m.pollMouse())
 
 	case foregroundDoneMsg:
+		m.handedOver = false
 		return m, claimMouse
 
 	case outputMsg:
@@ -470,6 +477,8 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case foregroundMsg:
+		m.handedOver = true
+		m.syncMargin() // before the terminal is handed over, not after
 		return m, tea.Exec(foreground{fn: msg.fn, out: m.out()}, foregroundDone(msg.reply))
 
 	case spinner.TickMsg:

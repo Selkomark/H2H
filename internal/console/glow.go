@@ -2,6 +2,7 @@ package console
 
 import (
 	"fmt"
+	"io"
 	"math"
 	"strings"
 	"time"
@@ -132,8 +133,8 @@ func (g Glow) glowFrameOf(page []string, width int, side, below string, since ti
 	cell := func(text string, place float64) string {
 		c, spot := g.at(place, since)
 		// The line itself burns a little whiter than its colour.
-		c = blend(c, hexLight(g.Light), 0.12+0.85*spot+0.14*breath)
-		line := blend(back, c, 0.25+0.75*strength)
+		c = blend(c, hexLight(g.Light), 0.1+0.6*spot+0.1*breath)
+		line := blend(back, c, 0.2+0.6*strength)
 		return lipgloss.NewStyle().Bold(true).Foreground(line.color()).Render(heavy.Replace(text))
 	}
 	rule := func(runes []rune, place func(x int) float64) string {
@@ -175,4 +176,55 @@ func (g Glow) glowFrameOf(page []string, width int, side, below string, since ti
 	out = append(out, below+strings.Repeat(" ", max(0, width-ansi.StringWidth(below))))
 	g.wash(out, width, topAt, bottomAt, since)
 	return out
+}
+
+// Some terminals keep a margin round their grid of cells, which no cell
+// covers, so the wash cannot reach it. What colours it is the terminal's
+// own background, which a program may change while it runs (OSC 11) and
+// put back (OSC 111). While the frame glows that background takes the
+// wash's light, averaged round the frame, so the margin is lit like the
+// page. A terminal that does not know the sequences ignores them.
+const resetBackground = "\x1b]111\x07"
+
+func setBackground(c lightColor) string {
+	return fmt.Sprintf("\x1b]11;rgb:%02x/%02x/%02x\x07", int(c.r+.5), int(c.g+.5), int(c.b+.5))
+}
+
+// tint is the background for the margin a time after the glow began.
+func (g Glow) tint(since time.Duration) lightColor {
+	const samples = 24
+	var sum lightColor
+	for i := range samples {
+		c, _ := g.at(float64(i)/samples, since)
+		sum.r, sum.g, sum.b = sum.r+c.r, sum.g+c.g, sum.b+c.b
+	}
+	average := lightColor{sum.r / samples, sum.g / samples, sum.b / samples}
+	strength := min(1, float64(since)/float64(glowFadeIn))
+	mixed := blend(hexLight(g.Back), average, strength*washStrength)
+	// In the wash's steps, so it is sent again only when it shows.
+	step := func(v float64) float64 { return float64(min(255, int(v/washStep+.5)*washStep)) }
+	return lightColor{step(mixed.r), step(mixed.g), step(mixed.b)}
+}
+
+// syncMargin sets the terminal's background to the glow's tint while the
+// frame glows, and puts it back when it stops or the terminal is handed to
+// a harness or an editor. It writes only when the colour changes.
+func (m *model) syncMargin() {
+	out := m.out()
+	if out == nil {
+		return
+	}
+	want := ""
+	if m.glowing() && !m.handedOver {
+		want = setBackground(m.o.Theme.Glow.tint(m.glowFor))
+	}
+	if want == m.margin {
+		return
+	}
+	if want == "" {
+		_, _ = io.WriteString(out, resetBackground)
+	} else {
+		_, _ = io.WriteString(out, want)
+	}
+	m.margin = want
 }

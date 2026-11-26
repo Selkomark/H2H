@@ -20,8 +20,8 @@ import (
 const (
 	// washStrength is how much of the light shows over the terminal's
 	// background, and washSpot how much more where a spot of light is.
-	washStrength = 0.075
-	washSpot     = 0.07
+	washStrength = 0.045
+	washSpot     = 0.045
 	// washStep is how far apart two shades must be to be told apart.
 	// Neighbours closer than that are drawn as one, which keeps a frame small.
 	washStep = 3
